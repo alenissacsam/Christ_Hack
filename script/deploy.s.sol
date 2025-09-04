@@ -26,29 +26,16 @@ contract DeployAll is Script {
         vm.startBroadcast();
 
         VerificationLogger verificationLogger = new VerificationLogger();
-        UserIdentityRegistry userRegistry = new UserIdentityRegistry(
-            address(verificationLogger)
-        );
-        OrganizationRegistry organizationRegistry = new OrganizationRegistry(
-            address(verificationLogger)
-        );
-        GlobalCredentialAnchor globalCredentialAnchor = new GlobalCredentialAnchor(
-                address(userRegistry),
-                address(verificationLogger)
-            );
-        CertificateManager certificateManager = new CertificateManager(
-            address(organizationRegistry),
-            address(userRegistry),
-            address(verificationLogger)
-        );
-        CrossChainManager crossChainManager = new CrossChainManager(
-            address(globalCredentialAnchor),
-            address(verificationLogger)
-        );
-        RecognitionManager recognitionManager = new RecognitionManager(
-            address(globalCredentialAnchor),
-            address(verificationLogger)
-        );
+        UserIdentityRegistry userRegistry = new UserIdentityRegistry(address(verificationLogger));
+        OrganizationRegistry organizationRegistry = new OrganizationRegistry(address(verificationLogger));
+        GlobalCredentialAnchor globalCredentialAnchor =
+            new GlobalCredentialAnchor(address(userRegistry), address(verificationLogger));
+        CertificateManager certificateManager =
+            new CertificateManager(address(organizationRegistry), address(userRegistry), address(verificationLogger));
+        CrossChainManager crossChainManager =
+            new CrossChainManager(address(globalCredentialAnchor), address(verificationLogger));
+        RecognitionManager recognitionManager =
+            new RecognitionManager(address(globalCredentialAnchor), address(verificationLogger));
 
         vm.stopBroadcast();
 
