@@ -1,0 +1,383 @@
+import { useAccount, useConnect, useDisconnect, useReadContract, useReadContracts, useWriteContract } from 'wagmi'
+import { useEffect, useMemo, useState } from 'react'
+import { AUDIT_LOGGER_ADDRESS, ORG_REGISTRY_ADDRESS, USER_REGISTRY_ADDRESS, auditLoggerAbi, orgRegistryAbi, userRegistryAbi } from './lib/contracts'
+
+function ConnectWallet() {
+  const { address, isConnected } = useAccount()
+  const { connectors, connect, isPending } = useConnect()
+  const { disconnect } = useDisconnect()
+  if (isConnected) {
+    return (
+      <div>
+        Connected: <code>{address}</code>
+        <button onClick={() => disconnect()}>Disconnect</button>
+      </div>
+    )
+  }
+  return (
+    <div>
+      {connectors.map((c) => (
+        <button key={c.uid} disabled={!c.ready || isPending} onClick={() => connect({ connector: c })}>
+          Connect {c.name}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function UserRegistryPanel() {
+  const { address } = useAccount()
+  const [faceHash, setFaceHash] = useState('')
+  const [ipfs, setIpfs] = useState('')
+  const [idHash, setIdHash] = useState('')
+  const [newUri, setNewUri] = useState('')
+  const [myCerts, setMyCerts] = useState<any[] | null>(null)
+
+  const { data: level } = useReadContract({
+    abi: userRegistryAbi,
+    address: USER_REGISTRY_ADDRESS,
+    functionName: 'getUserVerificationLevel',
+    args: address ? [address] : undefined,
+  })
+  const { data: active } = useReadContract({
+    abi: userRegistryAbi,
+    address: USER_REGISTRY_ADDRESS,
+    functionName: 'isActive',
+    args: address ? [address] : undefined,
+  })
+
+  const { data: myCertIds } = useReadContract({
+    abi: orgRegistryAbi,
+    address: ORG_REGISTRY_ADDRESS,
+    functionName: 'getUserCertificates',
+    args: address ? [address] : undefined,
+  })
+
+  const certDetailCalls = useMemo(() => (
+    (myCertIds as readonly `0x${string}`[] | undefined)?.map((id) => ({
+      abi: orgRegistryAbi,
+      address: ORG_REGISTRY_ADDRESS,
+      functionName: 'getCertificate' as const,
+      args: [id],
+    })) || []
+  ), [myCertIds])
+
+  const certValidCalls = useMemo(() => (
+    (myCertIds as readonly `0x${string}`[] | undefined)?.map((id) => ({
+      abi: orgRegistryAbi,
+      address: ORG_REGISTRY_ADDRESS,
+      functionName: 'isCertificateCurrentlyValid' as const,
+      args: [id],
+    })) || []
+  ), [myCertIds])
+
+  const { data: myCertDetails } = useReadContracts({ contracts: certDetailCalls })
+  const { data: myCertValidity } = useReadContracts({ contracts: certValidCalls })
+
+  const { writeContractAsync, isPending } = useWriteContract()
+
+  const register = async () => {
+    if (!USER_REGISTRY_ADDRESS) return alert('Missing USER_REGISTRY_ADDRESS')
+    if (!/^0x[0-9a-fA-F]{64}$/.test(faceHash)) return alert('faceHash must be 32-byte hex')
+    await writeContractAsync({
+      abi: userRegistryAbi,
+      address: USER_REGISTRY_ADDRESS,
+      functionName: 'registerUser',
+      args: [faceHash as `0x${string}`, ipfs],
+    })
+  }
+  const upgrade = async () => {
+    if (!/^0x[0-9a-fA-F]{64}$/.test(idHash)) return alert('nationalIdHash must be 32-byte hex')
+    await writeContractAsync({ abi: userRegistryAbi, address: USER_REGISTRY_ADDRESS, functionName: 'upgradeToLevel2', args: [idHash as `0x${string}`] })
+  }
+  const updateProfile = async () => {
+    await writeContractAsync({ abi: userRegistryAbi, address: USER_REGISTRY_ADDRESS, functionName: 'updateIpfsProfileUri', args: [newUri] })
+  }
+  const reactivate = async () => {
+    if (!address) return
+    await writeContractAsync({ abi: userRegistryAbi, address: USER_REGISTRY_ADDRESS, functionName: 'reactivateUser', args: [address] })
+  }
+
+  const levelLabel = useMemo(() => (level === undefined ? '—' : level === 0n ? 'NONE' : level === 1n ? 'LEVEL1_FACE' : 'LEVEL2_FULL'), [level])
+
+  return (
+    <section>
+      <h2>User Registry</h2>
+      <div>Status: active={String(active)} level={String(level)} ({levelLabel})</div>
+      <fieldset>
+        <legend>Register</legend>
+        <input placeholder="faceHash (0x...)" value={faceHash} onChange={(e) => setFaceHash(e.target.value)} />
+        <input placeholder="ipfs://..." value={ipfs} onChange={(e) => setIpfs(e.target.value)} />
+        <button disabled={isPending} onClick={register}>Register</button>
+      </fieldset>
+      <fieldset>
+        <legend>Upgrade to Level 2</legend>
+        <input placeholder="nationalIdHash (0x...)" value={idHash} onChange={(e) => setIdHash(e.target.value)} />
+        <button disabled={isPending} onClick={upgrade}>Request L2</button>
+      </fieldset>
+      <fieldset>
+        <legend>Update Profile URI</legend>
+        <input placeholder="ipfs://..." value={newUri} onChange={(e) => setNewUri(e.target.value)} />
+        <button disabled={isPending} onClick={updateProfile}>Update</button>
+      </fieldset>
+      <fieldset>
+        <legend>Reactivate (self/admin)</legend>
+        <button disabled={isPending} onClick={reactivate}>Reactivate</button>
+      </fieldset>
+      <fieldset>
+        <legend>My Certificates</legend>
+        {Array.isArray(myCertIds) && myCertIds.length > 0 ? (
+          <table>
+            <thead>
+              <tr>
+                <th>certId</th>
+                <th>orgId</th>
+                <th>type</th>
+                <th>issued</th>
+                <th>active</th>
+                <th>valid now</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(myCertIds as any[]).map((id, i) => {
+                const detail = myCertDetails?.[i]?.result as any
+                const valid = myCertValidity?.[i]?.result as boolean | undefined
+                return (
+                  <tr key={id as string}>
+                    <td><code>{id as string}</code></td>
+                    <td><code>{detail?.orgId}</code></td>
+                    <td>{detail?.certificateType}</td>
+                    <td>{detail?.issueDate ? new Date(Number(detail.issueDate) * 1000).toLocaleString() : '—'}</td>
+                    <td>{String(detail?.isActive)}</td>
+                    <td>{valid === undefined ? '—' : String(valid)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        ) : <em>No certificates</em>}
+      </fieldset>
+    </section>
+  )
+}
+
+function OrganizationRegistryPanel() {
+  const [orgName, setOrgName] = useState('')
+  const [orgUri, setOrgUri] = useState('')
+  const [orgId, setOrgId] = useState('')
+  const [rcpt, setRcpt] = useState('')
+  const [certType, setCertType] = useState('DEGREE')
+  const [certUri, setCertUri] = useState('')
+  const [minLevel, setMinLevel] = useState(1)
+  const [revokeCertId, setRevokeCertId] = useState('')
+  const [revokeReason, setRevokeReason] = useState('')
+  const [issuerAddr, setIssuerAddr] = useState('')
+  const [issuerAllowed, setIssuerAllowed] = useState(true)
+  const [orgMetaNewUri, setOrgMetaNewUri] = useState('')
+  const [issuanceEnabled, setIssuanceEnabled] = useState(true)
+  const [orgForList, setOrgForList] = useState('')
+
+  const { writeContractAsync, isPending } = useWriteContract()
+
+  const registerOrg = async () => {
+    const hash = await writeContractAsync({ abi: orgRegistryAbi, address: ORG_REGISTRY_ADDRESS, functionName: 'registerOrganization', args: [orgName, orgUri] })
+    console.log('tx', hash)
+  }
+  const verifyOrg = async () => {
+    if (!/^0x[0-9a-fA-F]{64}$/.test(orgId)) return alert('orgId must be bytes32 (0x...)')
+    await writeContractAsync({ abi: orgRegistryAbi, address: ORG_REGISTRY_ADDRESS, functionName: 'verifyOrganization', args: [orgId as `0x${string}`] })
+  }
+  const suspendOrg = async () => {
+    if (!/^0x[0-9a-fA-F]{64}$/.test(orgId)) return alert('orgId must be bytes32 (0x...)')
+    await writeContractAsync({ abi: orgRegistryAbi, address: ORG_REGISTRY_ADDRESS, functionName: 'suspendOrganization', args: [orgId as `0x${string}`] })
+  }
+  const resumeOrg = async () => {
+    if (!/^0x[0-9a-fA-F]{64}$/.test(orgId)) return alert('orgId must be bytes32 (0x...)')
+    await writeContractAsync({ abi: orgRegistryAbi, address: ORG_REGISTRY_ADDRESS, functionName: 'resumeOrganization', args: [orgId as `0x${string}`] })
+  }
+  const setIssuer = async () => {
+    if (!/^0x[0-9a-fA-F]{64}$/.test(orgId)) return alert('orgId must be bytes32 (0x...)')
+    await writeContractAsync({ abi: orgRegistryAbi, address: ORG_REGISTRY_ADDRESS, functionName: 'setOrgIssuer', args: [orgId as `0x${string}`, issuerAddr as `0x${string}`, issuerAllowed] })
+  }
+  const updateOrgMeta = async () => {
+    if (!/^0x[0-9a-fA-F]{64}$/.test(orgId)) return alert('orgId must be bytes32 (0x...)')
+    await writeContractAsync({ abi: orgRegistryAbi, address: ORG_REGISTRY_ADDRESS, functionName: 'updateOrganizationMetadata', args: [orgId as `0x${string}`, orgMetaNewUri] })
+  }
+  const toggleIssuance = async () => {
+    if (!/^0x[0-9a-fA-F]{64}$/.test(orgId)) return alert('orgId must be bytes32 (0x...)')
+    await writeContractAsync({ abi: orgRegistryAbi, address: ORG_REGISTRY_ADDRESS, functionName: 'setOrgIssuanceEnabled', args: [orgId as `0x${string}`, issuanceEnabled] })
+  }
+  const issueCert = async () => {
+    if (!/^0x[0-9a-fA-F]{64}$/.test(orgId)) return alert('orgId must be bytes32 (0x...)')
+    await writeContractAsync({
+      abi: orgRegistryAbi,
+      address: ORG_REGISTRY_ADDRESS,
+      functionName: 'issueCertificate',
+      args: [orgId as `0x${string}`, rcpt as `0x${string}`, certType, certUri, BigInt(minLevel)],
+    })
+  }
+  const revokeCert = async () => {
+    if (!/^0x[0-9a-fA-F]{64}$/.test(revokeCertId)) return alert('certId must be bytes32 (0x...)')
+    await writeContractAsync({ abi: orgRegistryAbi, address: ORG_REGISTRY_ADDRESS, functionName: 'revokeCertificate', args: [revokeCertId as `0x${string}`, revokeReason] })
+  }
+
+  // Org certificates listing
+  const { data: orgCertIds } = useReadContract({
+    abi: orgRegistryAbi,
+    address: ORG_REGISTRY_ADDRESS,
+    functionName: 'getOrgCertificates',
+    args: /^0x[0-9a-fA-F]{64}$/.test(orgForList) ? [orgForList as `0x${string}`] : undefined,
+  })
+
+  return (
+    <section>
+      <h2>Organization Registry</h2>
+      <fieldset>
+        <legend>Register Organization</legend>
+        <input placeholder="Org name" value={orgName} onChange={(e) => setOrgName(e.target.value)} />
+        <input placeholder="ipfs://org" value={orgUri} onChange={(e) => setOrgUri(e.target.value)} />
+        <button disabled={isPending} onClick={registerOrg}>Register</button>
+      </fieldset>
+      <fieldset>
+        <legend>Verify / Suspend / Resume (admin)</legend>
+        <input placeholder="orgId (0x...)" value={orgId} onChange={(e) => setOrgId(e.target.value)} />
+        <button disabled={isPending} onClick={verifyOrg}>Verify</button>
+        <button disabled={isPending} onClick={suspendOrg}>Suspend</button>
+        <button disabled={isPending} onClick={resumeOrg}>Resume</button>
+      </fieldset>
+      <fieldset>
+        <legend>Issuer Management</legend>
+        <input placeholder="orgId (0x...)" value={orgId} onChange={(e) => setOrgId(e.target.value)} />
+        <input placeholder="issuer 0x..." value={issuerAddr} onChange={(e) => setIssuerAddr(e.target.value)} />
+        <label>
+          <input type="checkbox" checked={issuerAllowed} onChange={(e) => setIssuerAllowed(e.target.checked)} /> Allowed
+        </label>
+        <button disabled={isPending} onClick={setIssuer}>Save Issuer</button>
+      </fieldset>
+      <fieldset>
+        <legend>Org Metadata / Issuance</legend>
+        <input placeholder="orgId (0x...)" value={orgId} onChange={(e) => setOrgId(e.target.value)} />
+        <input placeholder="ipfs://org metadata" value={orgMetaNewUri} onChange={(e) => setOrgMetaNewUri(e.target.value)} />
+        <button disabled={isPending} onClick={updateOrgMeta}>Update Metadata</button>
+        <label>
+          <input type="checkbox" checked={issuanceEnabled} onChange={(e) => setIssuanceEnabled(e.target.checked)} /> Issuance enabled
+        </label>
+        <button disabled={isPending} onClick={toggleIssuance}>Toggle Issuance</button>
+      </fieldset>
+      <fieldset>
+        <legend>Issue Certificate</legend>
+        <input placeholder="orgId (0x...)" value={orgId} onChange={(e) => setOrgId(e.target.value)} />
+        <input placeholder="recipient 0x..." value={rcpt} onChange={(e) => setRcpt(e.target.value)} />
+        <input placeholder="cert type" value={certType} onChange={(e) => setCertType(e.target.value)} />
+        <input placeholder="ipfs://cert" value={certUri} onChange={(e) => setCertUri(e.target.value)} />
+        <select value={minLevel} onChange={(e) => setMinLevel(parseInt(e.target.value))}>
+          <option value={0}>NONE</option>
+          <option value={1}>LEVEL1_FACE</option>
+          <option value={2}>LEVEL2_FULL</option>
+        </select>
+        <button disabled={isPending} onClick={issueCert}>Issue</button>
+      </fieldset>
+      <fieldset>
+        <legend>Revoke Certificate</legend>
+        <input placeholder="certId (0x...)" value={revokeCertId} onChange={(e) => setRevokeCertId(e.target.value)} />
+        <input placeholder="reason" value={revokeReason} onChange={(e) => setRevokeReason(e.target.value)} />
+        <button disabled={isPending} onClick={revokeCert}>Revoke</button>
+      </fieldset>
+      <fieldset>
+        <legend>Org Certificates</legend>
+        <input placeholder="orgId (0x...)" value={orgForList} onChange={(e) => setOrgForList(e.target.value)} />
+        <div>
+          {(orgCertIds as any[] | undefined)?.length ? (
+            <ul>
+              {(orgCertIds as any[]).map((id) => (
+                <li key={id as string}><code>{id as string}</code></li>
+              ))}
+            </ul>
+          ) : <em>No certs or invalid orgId</em>}
+        </div>
+      </fieldset>
+    </section>
+  )
+}
+
+function AuditViewer() {
+  const [count, setCount] = useState<bigint | undefined>(undefined)
+  const [pageSize, setPageSize] = useState(10)
+  const [start, setStart] = useState<bigint>(0n)
+
+  const { data: total } = useReadContract({ abi: auditLoggerAbi, address: AUDIT_LOGGER_ADDRESS, functionName: 'getTotalAuditCount' })
+  useEffect(() => { if (total !== undefined) { setCount(total); const s = total > BigInt(pageSize) ? total - BigInt(pageSize) : 0n; setStart(s) } }, [total, pageSize])
+
+  const { data: logs } = useReadContract({
+    abi: auditLoggerAbi,
+    address: AUDIT_LOGGER_ADDRESS,
+    functionName: 'logsInRange',
+    args: count !== undefined ? [start, BigInt(pageSize)] : undefined,
+  })
+
+  return (
+    <section>
+      <h2>Audit Logs</h2>
+      <div>Total logs: {String(total ?? '—')}</div>
+      <div>
+        Start: <input type="number" value={String(start)} onChange={(e) => setStart(BigInt(e.target.value || '0'))} />
+        Page size: <input type="number" value={pageSize} onChange={(e) => setPageSize(parseInt(e.target.value || '10'))} />
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>actor</th>
+            <th>target</th>
+            <th>action</th>
+            <th>success</th>
+            <th>time</th>
+            <th>info</th>
+          </tr>
+        </thead>
+        <tbody>
+          {(logs as any[] | undefined)?.map((l, i) => (
+            <tr key={i}>
+              <td><code>{l.actor}</code></td>
+              <td><code>{l.target}</code></td>
+              <td>{Number(l.actionType)}</td>
+              <td>{String(l.success)}</td>
+              <td>{new Date(Number(l.timestamp) * 1000).toLocaleString()}</td>
+              <td>{l.additionalInfo}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  )
+}
+
+export default function App() {
+  const [tab, setTab] = useState<'user' | 'org' | 'audit'>('user')
+  return (
+    <div>
+      <header>
+        <div className="container"><strong>Christ Hack Identity</strong></div>
+        <div className="container" style={{ textAlign: 'right' }}><ConnectWallet /></div>
+      </header>
+      <main>
+        <div className="container">
+          <nav>
+            <button onClick={() => setTab('user')}>User</button>
+            <button onClick={() => setTab('org')}>Organization</button>
+            <button onClick={() => setTab('audit')}>Audit</button>
+          </nav>
+          {tab === 'user' && <UserRegistryPanel />}
+          {tab === 'org' && <OrganizationRegistryPanel />}
+          {tab === 'audit' && <AuditViewer />}
+          <fieldset>
+            <legend>Config</legend>
+            <div>UserRegistry: <code>{USER_REGISTRY_ADDRESS || '(set VITE_USER_REGISTRY_ADDRESS)'}</code></div>
+            <div>OrganizationRegistry: <code>{ORG_REGISTRY_ADDRESS || '(set VITE_ORG_REGISTRY_ADDRESS)'}</code></div>
+            <div>AuditLogger: <code>{AUDIT_LOGGER_ADDRESS || '(set VITE_AUDIT_LOGGER_ADDRESS)'}</code></div>
+          </fieldset>
+        </div>
+      </main>
+    </div>
+  )
+}
+
