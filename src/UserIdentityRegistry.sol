@@ -49,8 +49,8 @@ contract UserIdentityRegistry is AccessControl, ReentrancyGuard {
     event AadhaarVerified(address indexed user, bytes32 aadhaarHash, uint256 timestamp);
     event IncomeVerified(address indexed user, uint256 income, uint256 timestamp);
 
-    modifier isAdmin(){
-        require(hasRole(ADMIN_ROLE, msg.sender),"only for admin");
+    modifier isAdmin() {
+        require(hasRole(ADMIN_ROLE, msg.sender), "only for admin");
         _;
     }
 
@@ -87,12 +87,11 @@ contract UserIdentityRegistry is AccessControl, ReentrancyGuard {
         emit UserRegistered(msg.sender, block.timestamp);
     }
 
-    function verifyFace(bytes32 _faceHash, bytes calldata signature ) external nonReentrant {
+    function verifyFace(bytes32 _faceHash, bytes calldata signature) external nonReentrant {
         require(userProfiles[msg.sender].isActive, "User not registered");
         require(faceHashToUser[_faceHash] == address(0), "Face hash already registered");
 
         require(_verifyHash(_faceHash, signature), "Invalid proof signer");
-        
 
         userProfiles[msg.sender].faceHash = _faceHash;
         userProfiles[msg.sender].faceStatus = VerificationStatus.VERIFIED;
@@ -103,7 +102,7 @@ contract UserIdentityRegistry is AccessControl, ReentrancyGuard {
         emit FaceVerified(msg.sender, _faceHash, block.timestamp);
     }
 
-    function _verifyHash(bytes32 _faceHash, bytes calldata signature ) internal view returns (bool) {
+    function _verifyHash(bytes32 _faceHash, bytes calldata signature) internal view returns (bool) {
         bytes32 msgHash = keccak256(abi.encodePacked(msg.sender, _faceHash));
         bytes32 ethSignedMsgHash = MessageHashUtils.toEthSignedMessageHash(msgHash);
         address signer = ECDSA.recover(ethSignedMsgHash, signature);
@@ -127,8 +126,8 @@ contract UserIdentityRegistry is AccessControl, ReentrancyGuard {
     function verifyIncome(bytes32 _incomeHash, bytes calldata _proof, uint256 _annualIncome) external nonReentrant {
         require(userProfiles[msg.sender].isActive, "User not registered");
         require(userProfiles[msg.sender].aadhaarStatus == VerificationStatus.VERIFIED, "Aadhaar required first");
-       
-       require(_verifyHash(_incomeHash, _proof), "Invalid proof signer");
+
+        require(_verifyHash(_incomeHash, _proof), "Invalid proof signer");
 
         userProfiles[msg.sender].incomeHash = _incomeHash;
         userProfiles[msg.sender].incomeStatus = VerificationStatus.VERIFIED;
@@ -184,6 +183,4 @@ contract UserIdentityRegistry is AccessControl, ReentrancyGuard {
     function setBackendSigner(address signer, bool enable) external isAdmin {
         isBackendSigner[signer] = enable;
     }
-
-
 }

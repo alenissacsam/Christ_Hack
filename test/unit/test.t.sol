@@ -34,30 +34,16 @@ contract VerficationTest is Test {
 
         userRegistry = new UserIdentityRegistry(address(verificationLogger));
 
-        globalAnchor = new GlobalCredentialAnchor(
-            address(userRegistry),
-            address(verificationLogger)
-        );
+        globalAnchor = new GlobalCredentialAnchor(address(userRegistry), address(verificationLogger));
 
-        recognitionManager = new RecognitionManager(
-            address(globalAnchor),
-            address(verificationLogger)
-        );
+        recognitionManager = new RecognitionManager(address(globalAnchor), address(verificationLogger));
 
-        crossChainManager = new CrossChainManager(
-            address(globalAnchor),
-            address(verificationLogger)
-        );
+        crossChainManager = new CrossChainManager(address(globalAnchor), address(verificationLogger));
 
-        organizationRegistry = new OrganizationRegistry(
-            address(verificationLogger)
-        );
+        organizationRegistry = new OrganizationRegistry(address(verificationLogger));
 
-        certificateManager = new CertificateManager(
-            address(organizationRegistry),
-            address(userRegistry),
-            address(verificationLogger)
-        );
+        certificateManager =
+            new CertificateManager(address(organizationRegistry), address(userRegistry), address(verificationLogger));
 
         verificationLogger.addLogger(address(userRegistry));
         verificationLogger.addLogger(address(globalAnchor));
@@ -69,11 +55,12 @@ contract VerficationTest is Test {
         vm.stopPrank();
     }
 
-    modifier UserRegistered(){
+    modifier UserRegistered() {
         vm.prank(userAdd);
         userRegistry.registerUser("xxxx");
         _;
     }
+
     function testRegisterUser() public {
         vm.prank(userAdd);
         vm.expectEmit(true, false, false, false, address(userRegistry));
@@ -81,11 +68,10 @@ contract VerficationTest is Test {
         userRegistry.registerUser("xxxx");
     }
 
-    function testFaceScan() public UserRegistered{
+    function testFaceScan() public UserRegistered {
         bytes32 msgHash = keccak256(abi.encodePacked(userAdd, faceHash));
         bytes32 ethMsgHash = MessageHashUtils.toEthSignedMessageHash(msgHash);
 
-        
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(1, ethMsgHash); // signing as backend signer
 
         bytes memory signature = abi.encodePacked(r, s, v);
