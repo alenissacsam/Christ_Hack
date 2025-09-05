@@ -14,3 +14,6 @@ deploy-sepolia:
 	@forge script script/deploy.s.sol:DeployAll --via-ir --broadcast \
 	--rpc-url ${SEPOLIA_RPC_URL} --private-key ${KEY} \
 	--verify --verifier blockscout --verifier-url ${SEPOLIA_VERIFIER} -vv
+BSigner:
+	@forge script script/interactions.s.sol:faceVerification --via-ir --broadcast \
+	--rpc-url ${SEPOLIA_RPC_URL} --private-key ${KEY}

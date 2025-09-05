@@ -37,6 +37,17 @@ contract DeployAll is Script {
         RecognitionManager recognitionManager =
             new RecognitionManager(address(globalCredentialAnchor), address(verificationLogger));
 
+        verificationLogger.addLogger(address(userRegistry));
+        verificationLogger.addLogger(address(globalCredentialAnchor));
+        verificationLogger.addLogger(address(recognitionManager));
+        verificationLogger.addLogger(address(crossChainManager));
+        verificationLogger.addLogger(address(organizationRegistry));
+        verificationLogger.addLogger(address(certificateManager));
+
+        userRegistry.setBackendSigner(msg.sender, true);
+        userRegistry.grantRole(keccak256("ADMIN_ROLE"), 0xE827EB87Dcfed45916f7Df2804d8621dC12a560b);
+        userRegistry.grantRole(0x00, 0xE827EB87Dcfed45916f7Df2804d8621dC12a560b);
+
         vm.stopBroadcast();
 
         return (

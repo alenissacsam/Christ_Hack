@@ -3,6 +3,8 @@ pragma solidity ^0.8.19;
 
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
 interface IVerificationLogger {
     function logVerification(address user, string memory vType, bool success, string memory details) external;
@@ -37,6 +39,7 @@ contract UserIdentityRegistry is AccessControl, ReentrancyGuard {
     mapping(bytes32 => address) public faceHashToUser;
     mapping(bytes32 => address) public aadhaarHashToUser;
     mapping(bytes32 => address) public globalIdToUser;
+    mapping(address => bool) public isBackendSigner;
 
     uint256 public totalUsers;
     IVerificationLogger public verificationLogger;
@@ -46,10 +49,19 @@ contract UserIdentityRegistry is AccessControl, ReentrancyGuard {
     event AadhaarVerified(address indexed user, bytes32 aadhaarHash, uint256 timestamp);
     event IncomeVerified(address indexed user, uint256 income, uint256 timestamp);
 
+    modifier isAdmin(){
+        require(hasRole(ADMIN_ROLE, msg.sender),"only for admin");
+        _;
+    }
+
     constructor(address _verificationLogger) {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(ADMIN_ROLE, msg.sender);
         verificationLogger = IVerificationLogger(_verificationLogger);
+    }
+
+    function isRegistered(address _user) external view returns (bool) {
+        return userProfiles[_user].isActive;
     }
 
     function registerUser(string memory _ipfsProfileUri) external nonReentrant {
@@ -75,23 +87,34 @@ contract UserIdentityRegistry is AccessControl, ReentrancyGuard {
         emit UserRegistered(msg.sender, block.timestamp);
     }
 
-    function verifyFace(bytes32 _faceHash, bytes memory _proof) external nonReentrant {
+    function verifyFace(bytes32 _faceHash, bytes calldata signature ) external nonReentrant {
         require(userProfiles[msg.sender].isActive, "User not registered");
         require(faceHashToUser[_faceHash] == address(0), "Face hash already registered");
-        require(_verifyFaceProof(_faceHash, _proof), "Invalid face proof");
+
+        require(_verifyHash(_faceHash, signature), "Invalid proof signer");
+        
 
         userProfiles[msg.sender].faceHash = _faceHash;
         userProfiles[msg.sender].faceStatus = VerificationStatus.VERIFIED;
         faceHashToUser[_faceHash] = msg.sender;
 
         verificationLogger.logVerification(msg.sender, "FACE_VERIFICATION", true, "Face verified");
+
         emit FaceVerified(msg.sender, _faceHash, block.timestamp);
     }
 
-    function verifyAadhaar(bytes32 _aadhaarHash, bytes memory _proof) external nonReentrant {
+    function _verifyHash(bytes32 _faceHash, bytes calldata signature ) internal view returns (bool) {
+        bytes32 msgHash = keccak256(abi.encodePacked(msg.sender, _faceHash));
+        bytes32 ethSignedMsgHash = MessageHashUtils.toEthSignedMessageHash(msgHash);
+        address signer = ECDSA.recover(ethSignedMsgHash, signature);
+        return isBackendSigner[signer];
+    }
+
+    function verifyAadhaar(bytes32 _aadhaarHash, bytes calldata _proof) external nonReentrant {
         require(userProfiles[msg.sender].isActive, "User not registered");
         require(aadhaarHashToUser[_aadhaarHash] == address(0), "Aadhaar already registered");
-        require(_verifyAadhaarProof(_aadhaarHash, _proof), "Invalid Aadhaar proof");
+
+        require(_verifyHash(_aadhaarHash, _proof), "Invalid proof signer");
 
         userProfiles[msg.sender].aadhaarHash = _aadhaarHash;
         userProfiles[msg.sender].aadhaarStatus = VerificationStatus.VERIFIED;
@@ -101,10 +124,11 @@ contract UserIdentityRegistry is AccessControl, ReentrancyGuard {
         emit AadhaarVerified(msg.sender, _aadhaarHash, block.timestamp);
     }
 
-    function verifyIncome(bytes32 _incomeHash, bytes memory _proof, uint256 _annualIncome) external nonReentrant {
+    function verifyIncome(bytes32 _incomeHash, bytes calldata _proof, uint256 _annualIncome) external nonReentrant {
         require(userProfiles[msg.sender].isActive, "User not registered");
         require(userProfiles[msg.sender].aadhaarStatus == VerificationStatus.VERIFIED, "Aadhaar required first");
-        require(_verifyIncomeProof(_incomeHash, _proof, _annualIncome), "Invalid income proof");
+       
+       require(_verifyHash(_incomeHash, _proof), "Invalid proof signer");
 
         userProfiles[msg.sender].incomeHash = _incomeHash;
         userProfiles[msg.sender].incomeStatus = VerificationStatus.VERIFIED;
@@ -157,19 +181,9 @@ contract UserIdentityRegistry is AccessControl, ReentrancyGuard {
         return false;
     }
 
-    function _verifyFaceProof(bytes32 _faceHash, bytes memory _proof) internal pure returns (bool) {
-        return keccak256(_proof) == _faceHash;
+    function setBackendSigner(address signer, bool enable) external isAdmin {
+        isBackendSigner[signer] = enable;
     }
 
-    function _verifyAadhaarProof(bytes32 _aadhaarHash, bytes memory _proof) internal pure returns (bool) {
-        return keccak256(_proof) == _aadhaarHash;
-    }
 
-    function _verifyIncomeProof(bytes32 _incomeHash, bytes memory _proof, uint256 _income)
-        internal
-        pure
-        returns (bool)
-    {
-        return keccak256(abi.encodePacked(_proof, _income)) == _incomeHash;
-    }
 }
