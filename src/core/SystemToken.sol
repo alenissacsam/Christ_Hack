@@ -175,7 +175,7 @@ contract SystemToken is
         uint256 duration,
         uint256 slicePeriodSeconds,
         bool revocable
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    ) public onlyRole(DEFAULT_ADMIN_ROLE) {
         require(beneficiary != address(0), "Invalid beneficiary");
         require(amount > 0, "Amount must be positive");
         require(duration >= cliffDuration, "Duration < cliff");

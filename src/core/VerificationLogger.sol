@@ -4,8 +4,11 @@ pragma solidity ^0.8.19;
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-
-contract VerificationLogger is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
+contract VerificationLogger is
+    Initializable,
+    AccessControlUpgradeable,
+    UUPSUpgradeable
+{
     bytes32 public constant LOGGER_ROLE = keccak256("LOGGER_ROLE");
     bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
 
@@ -24,10 +27,10 @@ contract VerificationLogger is Initializable, AccessControlUpgradeable, UUPSUpgr
     mapping(address => uint256[]) public userLogs;
     mapping(string => uint256[]) public eventTypeLogs;
     mapping(address => uint256[]) public contractLogs;
-    
+
     uint256 public logCounter;
     uint256 public archiveThreshold = 1000000; // Archive logs older than this ID
-    
+
     event EventLogged(
         uint256 indexed logId,
         string indexed eventType,
@@ -35,7 +38,7 @@ contract VerificationLogger is Initializable, AccessControlUpgradeable, UUPSUpgr
         address contractAddress,
         bytes32 dataHash
     );
-    
+
     event LogsArchived(uint256 fromId, uint256 toId);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -52,7 +55,9 @@ contract VerificationLogger is Initializable, AccessControlUpgradeable, UUPSUpgr
         _grantRole(UPGRADER_ROLE, msg.sender);
     }
 
-    function _authorizeUpgrade(address newImplementation) internal override onlyRole(UPGRADER_ROLE) {}
+    function _authorizeUpgrade(
+        address newImplementation
+    ) internal override onlyRole(UPGRADER_ROLE) {}
 
     function logEvent(
         string memory eventType,
@@ -86,7 +91,8 @@ contract VerificationLogger is Initializable, AccessControlUpgradeable, UUPSUpgr
         bytes32[] memory dataHashes
     ) external onlyRole(LOGGER_ROLE) {
         require(
-            eventTypes.length == users.length && users.length == dataHashes.length,
+            eventTypes.length == users.length &&
+                users.length == dataHashes.length,
             "Array lengths must match"
         );
 
@@ -109,16 +115,29 @@ contract VerificationLogger is Initializable, AccessControlUpgradeable, UUPSUpgr
             eventTypeLogs[eventTypes[i]].push(logCounter);
             contractLogs[msg.sender].push(logCounter);
 
-            emit EventLogged(logCounter, eventTypes[i], users[i], msg.sender, dataHashes[i]);
+            emit EventLogged(
+                logCounter,
+                eventTypes[i],
+                users[i],
+                msg.sender,
+                dataHashes[i]
+            );
         }
     }
 
-    function archiveLogs(uint256 fromId, uint256 toId) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function archiveLogs(
+        uint256 fromId,
+        uint256 toId
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(fromId <= toId && toId <= logCounter, "Invalid range");
-        require(toId < logCounter - archiveThreshold, "Cannot archive recent logs");
+        require(
+            toId < logCounter - archiveThreshold,
+            "Cannot archive recent logs"
+        );
 
         for (uint256 i = fromId; i <= toId; i++) {
-            if (logs[i].id != 0) { // Check if log exists
+            if (logs[i].id != 0) {
+                // Check if log exists
                 logs[i].isArchived = true;
             }
         }
@@ -126,7 +145,9 @@ contract VerificationLogger is Initializable, AccessControlUpgradeable, UUPSUpgr
         emit LogsArchived(fromId, toId);
     }
 
-    function getUserLogs(address user) external view returns (uint256[] memory) {
+    function getUserLogs(
+        address user
+    ) external view returns (uint256[] memory) {
         return userLogs[user];
     }
 
@@ -141,7 +162,9 @@ contract VerificationLogger is Initializable, AccessControlUpgradeable, UUPSUpgr
         // First pass: count matching logs
         for (uint256 i = 0; i < userLogIds.length; i++) {
             LogEntry memory log = logs[userLogIds[i]];
-            if (log.timestamp >= fromTimestamp && log.timestamp <= toTimestamp) {
+            if (
+                log.timestamp >= fromTimestamp && log.timestamp <= toTimestamp
+            ) {
                 count++;
             }
         }
@@ -151,7 +174,9 @@ contract VerificationLogger is Initializable, AccessControlUpgradeable, UUPSUpgr
         uint256 index = 0;
         for (uint256 i = 0; i < userLogIds.length; i++) {
             LogEntry memory log = logs[userLogIds[i]];
-            if (log.timestamp >= fromTimestamp && log.timestamp <= toTimestamp) {
+            if (
+                log.timestamp >= fromTimestamp && log.timestamp <= toTimestamp
+            ) {
                 result[index] = log;
                 index++;
             }
@@ -160,20 +185,27 @@ contract VerificationLogger is Initializable, AccessControlUpgradeable, UUPSUpgr
         return result;
     }
 
-    function getEventTypeLogs(string memory eventType) external view returns (uint256[] memory) {
+    function getEventTypeLogs(
+        string memory eventType
+    ) external view returns (uint256[] memory) {
         return eventTypeLogs[eventType];
     }
 
-    function getContractLogs(address contractAddress) external view returns (uint256[] memory) {
+    function getContractLogs(
+        address contractAddress
+    ) external view returns (uint256[] memory) {
         return contractLogs[contractAddress];
     }
 
-    function getLogsInRange(uint256 fromId, uint256 toId) external view returns (LogEntry[] memory) {
+    function getLogsInRange(
+        uint256 fromId,
+        uint256 toId
+    ) external view returns (LogEntry[] memory) {
         require(fromId <= toId && toId <= logCounter, "Invalid range");
-        
+
         uint256 length = toId - fromId + 1;
         LogEntry[] memory result = new LogEntry[](length);
-        
+
         for (uint256 i = 0; i < length; i++) {
             result[i] = logs[fromId + i];
         }
@@ -186,9 +218,9 @@ contract VerificationLogger is Initializable, AccessControlUpgradeable, UUPSUpgr
         uint256 toTime
     ) external view returns (LogEntry[] memory) {
         require(fromTime <= toTime, "Invalid time range");
-        
+
         uint256 count = 0;
-        
+
         // First pass: count logs in time range
         for (uint256 i = 1; i <= logCounter; i++) {
             if (logs[i].timestamp >= fromTime && logs[i].timestamp <= toTime) {
@@ -198,7 +230,7 @@ contract VerificationLogger is Initializable, AccessControlUpgradeable, UUPSUpgr
 
         LogEntry[] memory result = new LogEntry[](count);
         uint256 index = 0;
-        
+
         // Second pass: collect logs
         for (uint256 i = 1; i <= logCounter; i++) {
             if (logs[i].timestamp >= fromTime && logs[i].timestamp <= toTime) {
@@ -244,25 +276,27 @@ contract VerificationLogger is Initializable, AccessControlUpgradeable, UUPSUpgr
         return logCounter;
     }
 
-    function getLogStats() external view returns (
-        uint256 totalLogs,
-        uint256 archivedLogs,
-        uint256 activeLogs
-    ) {
+    function getLogStats()
+        external
+        view
+        returns (uint256 totalLogs, uint256 archivedLogs, uint256 activeLogs)
+    {
         totalLogs = logCounter;
-        
+
         uint256 archived = 0;
         for (uint256 i = 1; i <= logCounter; i++) {
             if (logs[i].isArchived) {
                 archived++;
             }
         }
-        
+
         archivedLogs = archived;
         activeLogs = totalLogs - archived;
     }
 
-    function setArchiveThreshold(uint256 newThreshold) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setArchiveThreshold(
+        uint256 newThreshold
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         archiveThreshold = newThreshold;
     }
 

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.19;
 
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
@@ -139,7 +139,7 @@ contract FaceVerificationManager is
         bool success,
         string memory verificationProvider,
         bytes memory oracleSignature
-    ) external onlyRole(ORACLE_ROLE) {
+    ) public onlyRole(ORACLE_ROLE) {
         require(faceVerifications[user].isActive, "No active face verification");
         require(bytes(verificationProvider).length > 0, "Provider required");
         require(_verifyOracleSignature(user, success, oracleSignature), "Invalid oracle signature");

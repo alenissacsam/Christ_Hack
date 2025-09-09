@@ -2,7 +2,7 @@
 pragma solidity ^0.8.19;
 
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
@@ -146,7 +146,7 @@ contract CrossChainManager is
         MessageType msgType,
         address recipient,
         bytes memory payload
-    ) external payable nonReentrant returns (uint256) {
+    ) public payable nonReentrant returns (uint256) {
         require(!emergencyPauseEnabled, "Bridge paused");
         require(supportedChains[dstChainId].isActive, "Chain not supported");
         require(supportedChains[dstChainId].status == BridgeStatus.Active, "Bridge not active");

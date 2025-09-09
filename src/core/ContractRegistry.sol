@@ -54,7 +54,7 @@ contract ContractRegistry is Initializable, AccessControlUpgradeable, UUPSUpgrad
         string memory name,
         address contractAddress,
         string memory version
-    ) external onlyRole(REGISTRY_ADMIN_ROLE) {
+    ) public onlyRole(REGISTRY_ADMIN_ROLE) {
         require(contractAddress != address(0), "Invalid contract address");
         require(bytes(name).length > 0, "Name cannot be empty");
         require(bytes(version).length > 0, "Version cannot be empty");

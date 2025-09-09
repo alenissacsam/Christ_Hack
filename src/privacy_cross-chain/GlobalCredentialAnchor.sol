@@ -2,7 +2,7 @@
 pragma solidity ^0.8.19;
 
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
@@ -120,7 +120,7 @@ contract GlobalCredentialAnchor is
         address[] memory holders,
         string[] memory credentialTypes,
         string memory metadataURI
-    ) external onlyRole(VERIFIER_ROLE) nonReentrant returns (uint256) {
+    ) public onlyRole(VERIFIER_ROLE) nonReentrant returns (uint256) {
         require(credentialHashes.length <= BATCH_SIZE, "Batch too large");
         require(
             credentialHashes.length == holders.length && 

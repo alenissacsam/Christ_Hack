@@ -2,7 +2,7 @@
 pragma solidity ^0.8.19;
 
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
@@ -126,7 +126,7 @@ contract MigrationManager is
     event BatchMigrated(uint256 indexed migrationId, uint256 batchNumber, uint256 recordCount);
     event DataBackedUp(string indexed contractName, string dataType, bytes32 backupHash);
     event DataRestored(string indexed contractName, bytes32 backupHash);
-    event StateSnapshot(uint256 indexed snapshotId, string contractName, bytes32 stateHash);
+    event StateSnapshotEvent(uint256 indexed snapshotId, string contractName, bytes32 stateHash);
     event RollbackExecuted(uint256 indexed migrationId, string reason);
     event EmergencyPause(address indexed admin, string reason);
 
@@ -534,7 +534,7 @@ contract MigrationManager is
             isActive: true
         });
 
-        emit StateSnapshot(snapshotId, _getContractName(contractAddress), stateHash);
+        emit StateSnapshotEvent(snapshotId, _getContractName(contractAddress), stateHash);
         return snapshotId;
     }
 

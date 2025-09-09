@@ -2,7 +2,7 @@
 pragma solidity ^0.8.19;
 
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
@@ -144,7 +144,7 @@ contract IncomeVerificationManager is
         address user,
         bool success,
         bytes memory oracleSignature
-    ) external onlyRole(INCOME_ORACLE_ROLE) {
+    ) public onlyRole(INCOME_ORACLE_ROLE) {
         require(incomeVerifications[user].isActive, "No active income verification");
         require(_verifyOracleSignature(user, success, oracleSignature), "Invalid oracle signature");
 

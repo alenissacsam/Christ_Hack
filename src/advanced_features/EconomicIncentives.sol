@@ -2,25 +2,34 @@
 pragma solidity ^0.8.19;
 
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 interface ITrustScore {
     function getTrustScore(address user) external view returns (uint256);
-    function updateScore(address user, int256 delta, string memory reason) external;
+
+    function updateScore(
+        address user,
+        int256 delta,
+        string memory reason
+    ) external;
 }
 
 interface IVerificationLogger {
-    function logEvent(string memory eventType, address user, bytes32 dataHash) external;
+    function logEvent(
+        string memory eventType,
+        address user,
+        bytes32 dataHash
+    ) external;
 }
 
-contract EconomicIncentives is 
+contract EconomicIncentives is
     Initializable,
-    AccessControlUpgradeable, 
+    AccessControlUpgradeable,
     ReentrancyGuardUpgradeable,
-    UUPSUpgradeable 
+    UUPSUpgradeable
 {
     bytes32 public constant REWARD_ADMIN_ROLE = keccak256("REWARD_ADMIN_ROLE");
     bytes32 public constant SLASHER_ROLE = keccak256("SLASHER_ROLE");
@@ -53,11 +62,11 @@ contract EconomicIncentives is
     mapping(address => uint256) public totalEarnedRewards;
     mapping(string => RewardPool) public rewardPools;
     mapping(uint256 => StakingTier) public stakingTiers;
-    
+
     address[] public stakers;
     uint256 public stakingTierCount;
-    
-    IERC20Upgradeable public stakingToken;
+
+    IERC20 public stakingToken;
     ITrustScore public trustScore;
     IVerificationLogger public verificationLogger;
 
@@ -71,8 +80,16 @@ contract EconomicIncentives is
     event Unstaked(address indexed user, uint256 amount);
     event RewardClaimed(address indexed user, uint256 amount);
     event Slashed(address indexed user, uint256 amount, string reason);
-    event RewardDistributed(address indexed user, uint256 amount, string reason);
-    event StakingTierAdded(uint256 tierIndex, uint256 minStake, uint256 multiplier);
+    event RewardDistributed(
+        address indexed user,
+        uint256 amount,
+        string reason
+    );
+    event StakingTierAdded(
+        uint256 tierIndex,
+        uint256 minStake,
+        uint256 multiplier
+    );
     event RewardPoolCreated(string poolName, uint256 totalRewards);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -94,11 +111,11 @@ contract EconomicIncentives is
         _grantRole(SLASHER_ROLE, msg.sender);
         _grantRole(UPGRADER_ROLE, msg.sender);
 
-        stakingToken = IERC20Upgradeable(_stakingToken);
+        stakingToken = IERC20(_stakingToken);
         trustScore = ITrustScore(_trustScore);
         verificationLogger = IVerificationLogger(_verificationLogger);
 
-        minimumStake = 100 * 10**18; // 100 tokens
+        minimumStake = 100 * 10 ** 18; // 100 tokens
         slashingPercentage = 20; // 20%
         rewardRate = 10; // Base reward rate
         stakingLockPeriod = 7 days;
@@ -107,11 +124,16 @@ contract EconomicIncentives is
         _initializeRewardPools();
     }
 
-    function _authorizeUpgrade(address newImplementation) internal override onlyRole(UPGRADER_ROLE) {}
+    function _authorizeUpgrade(
+        address newImplementation
+    ) internal override onlyRole(UPGRADER_ROLE) {}
 
     function stake(uint256 amount) external nonReentrant {
         require(amount >= minimumStake, "Amount below minimum stake");
-        require(stakingToken.transferFrom(msg.sender, address(this), amount), "Transfer failed");
+        require(
+            stakingToken.transferFrom(msg.sender, address(this), amount),
+            "Transfer failed"
+        );
 
         if (!stakes[msg.sender].isActive) {
             stakers.push(msg.sender);
@@ -138,8 +160,14 @@ contract EconomicIncentives is
 
     function unstake(uint256 amount) external nonReentrant {
         require(stakes[msg.sender].isActive, "No active stake");
-        require(stakes[msg.sender].amount >= amount, "Insufficient staked amount");
-        require(block.timestamp >= stakes[msg.sender].lockExpiry, "Stake still locked");
+        require(
+            stakes[msg.sender].amount >= amount,
+            "Insufficient staked amount"
+        );
+        require(
+            block.timestamp >= stakes[msg.sender].lockExpiry,
+            "Stake still locked"
+        );
         require(!stakes[msg.sender].isSlashed, "Cannot unstake slashed stake");
 
         stakes[msg.sender].amount -= amount;
@@ -163,7 +191,7 @@ contract EconomicIncentives is
 
     function emergencyUnstake() external nonReentrant {
         require(stakes[msg.sender].isActive, "No active stake");
-        
+
         uint256 amount = stakes[msg.sender].amount;
         uint256 penalty = (amount * 10) / 100; // 10% penalty for emergency unstake
         uint256 netAmount = amount - penalty;
@@ -174,7 +202,10 @@ contract EconomicIncentives is
 
         _removeStaker(msg.sender);
 
-        require(stakingToken.transfer(msg.sender, netAmount), "Transfer failed");
+        require(
+            stakingToken.transfer(msg.sender, netAmount),
+            "Transfer failed"
+        );
 
         // Penalty stays in contract
         trustScore.updateScore(msg.sender, -10, "Emergency unstake penalty");
@@ -216,7 +247,10 @@ contract EconomicIncentives is
 
         pendingRewards[msg.sender] = 0;
 
-        require(stakingToken.transfer(msg.sender, reward), "Reward transfer failed");
+        require(
+            stakingToken.transfer(msg.sender, reward),
+            "Reward transfer failed"
+        );
 
         verificationLogger.logEvent(
             "REWARDS_CLAIMED",
@@ -227,7 +261,10 @@ contract EconomicIncentives is
         emit RewardClaimed(msg.sender, reward);
     }
 
-    function slash(address user, string memory reason) external onlyRole(SLASHER_ROLE) {
+    function slash(
+        address user,
+        string memory reason
+    ) external onlyRole(SLASHER_ROLE) {
         require(stakes[user].isActive, "User not staked");
         require(!stakes[user].isSlashed, "Already slashed");
 
@@ -252,7 +289,10 @@ contract EconomicIncentives is
         emit Slashed(user, slashAmount, reason);
     }
 
-    function calculateReward(address user, string memory poolType) external view returns (uint256) {
+    function calculateReward(
+        address user,
+        string memory poolType
+    ) external view returns (uint256) {
         if (!stakes[user].isActive) return 0;
 
         uint256 userTrustScore = trustScore.getTrustScore(user);
@@ -266,7 +306,7 @@ contract EconomicIncentives is
         // Staking tier multiplier
         uint256 tierMultiplier = stakingTiers[stakingTier].multiplier;
 
-        return baseReward * trustMultiplier * tierMultiplier / 100;
+        return (baseReward * trustMultiplier * tierMultiplier) / 100;
     }
 
     function addStakingTier(
@@ -311,20 +351,26 @@ contract EconomicIncentives is
             if (recipients[i] != address(0) && amounts[i] > 0) {
                 pendingRewards[recipients[i]] += amounts[i];
                 totalEarnedRewards[recipients[i]] += amounts[i];
-                
+
                 emit RewardDistributed(recipients[i], amounts[i], reason);
             }
         }
     }
 
-    function getStakeInfo(address user) external view returns (
-        uint256 amount,
-        uint256 stakedAt,
-        bool isActive,
-        uint256 lockExpiry,
-        bool isSlashed,
-        uint256 tier
-    ) {
+    function getStakeInfo(
+        address user
+    )
+        external
+        view
+        returns (
+            uint256 amount,
+            uint256 stakedAt,
+            bool isActive,
+            uint256 lockExpiry,
+            bool isSlashed,
+            uint256 tier
+        )
+    {
         Stake memory userStake = stakes[user];
         return (
             userStake.amount,
@@ -348,16 +394,20 @@ contract EconomicIncentives is
         return stakers;
     }
 
-    function getStakingTierInfo(uint256 tierIndex) external view returns (
-        uint256 minStake,
-        uint256 multiplier,
-        string memory name
-    ) {
+    function getStakingTierInfo(
+        uint256 tierIndex
+    )
+        external
+        view
+        returns (uint256 minStake, uint256 multiplier, string memory name)
+    {
         StakingTier memory tier = stakingTiers[tierIndex];
         return (tier.minStake, tier.multiplier, tier.name);
     }
 
-    function _getStakingTier(uint256 stakedAmount) private view returns (uint256) {
+    function _getStakingTier(
+        uint256 stakedAmount
+    ) private view returns (uint256) {
         for (uint256 i = stakingTierCount; i > 0; i--) {
             if (stakedAmount >= stakingTiers[i - 1].minStake) {
                 return i - 1;
@@ -369,21 +419,21 @@ contract EconomicIncentives is
     function _initializeStakingTiers() private {
         // Bronze tier
         stakingTiers[0] = StakingTier({
-            minStake: 100 * 10**18,
+            minStake: 100 * 10 ** 18,
             multiplier: 100,
             name: "Bronze"
         });
 
         // Silver tier
         stakingTiers[1] = StakingTier({
-            minStake: 1000 * 10**18,
+            minStake: 1000 * 10 ** 18,
             multiplier: 125,
             name: "Silver"
         });
 
         // Gold tier
         stakingTiers[2] = StakingTier({
-            minStake: 10000 * 10**18,
+            minStake: 10000 * 10 ** 18,
             multiplier: 150,
             name: "Gold"
         });
@@ -393,7 +443,7 @@ contract EconomicIncentives is
 
     function _initializeRewardPools() private {
         rewardPools["CERTIFICATE_REWARD"] = RewardPool({
-            totalRewards: 1000000 * 10**18,
+            totalRewards: 1000000 * 10 ** 18,
             distributedRewards: 0,
             lastUpdateTime: block.timestamp,
             isActive: true,
@@ -401,7 +451,7 @@ contract EconomicIncentives is
         });
 
         rewardPools["GOVERNANCE_REWARD"] = RewardPool({
-            totalRewards: 500000 * 10**18,
+            totalRewards: 500000 * 10 ** 18,
             distributedRewards: 0,
             lastUpdateTime: block.timestamp,
             isActive: true,
