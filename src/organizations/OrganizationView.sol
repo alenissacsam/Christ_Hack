@@ -8,17 +8,11 @@ contract OrganizationView is OrganizationStorage {
         return activeOrganizations;
     }
 
-    function getPendingOrganizations()
-        external
-        view
-        returns (address[] memory)
-    {
+    function getPendingOrganizations() external view returns (address[] memory) {
         return pendingOrganizations;
     }
 
-    function getOrganizationsByType(
-        OrganizationType orgType
-    ) external view returns (address[] memory) {
+    function getOrganizationsByType(OrganizationType orgType) external view returns (address[] memory) {
         uint256 orgCount = allOrganizations.length;
         uint256 count = 0;
 
@@ -46,9 +40,7 @@ contract OrganizationView is OrganizationStorage {
         return result;
     }
 
-    function getOrganizationsByCountry(
-        string memory country
-    ) external view returns (address[] memory) {
+    function getOrganizationsByCountry(string memory country) external view returns (address[] memory) {
         bytes32 countryHash = keccak256(bytes(country));
         uint256 orgCount = allOrganizations.length;
         uint256 count = 0;
@@ -56,11 +48,7 @@ contract OrganizationView is OrganizationStorage {
         // First pass: count matching organizations
         unchecked {
             for (uint256 i = 0; i < orgCount; ++i) {
-                if (
-                    keccak256(
-                        bytes(organizations[allOrganizations[i]].country)
-                    ) == countryHash
-                ) {
+                if (keccak256(bytes(organizations[allOrganizations[i]].country)) == countryHash) {
                     ++count;
                 }
             }
@@ -72,11 +60,7 @@ contract OrganizationView is OrganizationStorage {
 
         unchecked {
             for (uint256 i = 0; i < orgCount; ++i) {
-                if (
-                    keccak256(
-                        bytes(organizations[allOrganizations[i]].country)
-                    ) == countryHash
-                ) {
+                if (keccak256(bytes(organizations[allOrganizations[i]].country)) == countryHash) {
                     result[idx++] = allOrganizations[i];
                 }
             }
@@ -85,23 +69,12 @@ contract OrganizationView is OrganizationStorage {
         return result;
     }
 
-    function getGlobalStats()
-        external
-        view
-        returns (uint256, uint256, uint256, uint256)
-    {
-        return (
-            totalOrganizations,
-            activeOrgCount,
-            pendingOrgCount,
-            suspendedOrgCount
-        );
+    function getGlobalStats() external view returns (uint256, uint256, uint256, uint256) {
+        return (totalOrganizations, activeOrgCount, pendingOrgCount, suspendedOrgCount);
     }
 
     // SAFE FIELD-SLICED VIEWS!
-    function getOrganizationMain(
-        address addr
-    )
+    function getOrganizationMain(address addr)
         external
         view
         returns (
@@ -124,9 +97,7 @@ contract OrganizationView is OrganizationStorage {
         city = org.city;
     }
 
-    function getOrganizationContact(
-        address addr
-    )
+    function getOrganizationContact(address addr)
         external
         view
         returns (
@@ -143,9 +114,7 @@ contract OrganizationView is OrganizationStorage {
         metadataUri = org.metadataUri;
     }
 
-    function getOrganizationStatus(
-        address addr
-    )
+    function getOrganizationStatus(address addr)
         external
         view
         returns (
@@ -168,9 +137,7 @@ contract OrganizationView is OrganizationStorage {
         certificatesRevoked = org.certificatesRevoked;
     }
 
-    function getAccreditations(
-        address addr
-    ) external view returns (AccreditationType[] memory) {
+    function getAccreditations(address addr) external view returns (AccreditationType[] memory) {
         Organization storage org = organizations[addr];
         return org.accreditations;
     }

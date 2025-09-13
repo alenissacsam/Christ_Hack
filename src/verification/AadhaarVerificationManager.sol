@@ -7,19 +7,11 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 interface IVerificationLogger {
-    function logEvent(
-        string memory eventType,
-        address user,
-        bytes32 dataHash
-    ) external;
+    function logEvent(string memory eventType, address user, bytes32 dataHash) external;
 }
 
 interface IUserIdentityRegistry {
-    function updateVerificationStatus(
-        address user,
-        string memory verificationType,
-        bool status
-    ) external;
+    function updateVerificationStatus(address user, string memory verificationType, bool status) external;
 
     function isRegistered(address user) external view returns (bool);
 
@@ -27,11 +19,7 @@ interface IUserIdentityRegistry {
 }
 
 interface ITrustScore {
-    function updateScore(
-        address user,
-        int256 delta,
-        string memory reason
-    ) external;
+    function updateScore(address user, int256 delta, string memory reason) external;
 }
 
 interface IFaceVerificationManager {
@@ -74,15 +62,8 @@ contract AadhaarVerificationManager is
     uint256 public constant RETRY_COOLDOWN = 2 hours;
     uint256 public constant MAX_FAILED_ATTEMPTS = 3;
 
-    event AadhaarVerificationRequested(
-        address indexed user,
-        bytes32 aadhaarHashCommitment
-    );
-    event AadhaarVerificationCompleted(
-        address indexed user,
-        bool success,
-        string method
-    );
+    event AadhaarVerificationRequested(address indexed user, bytes32 aadhaarHashCommitment);
+    event AadhaarVerificationCompleted(address indexed user, bool success, string method);
     event AadhaarVerificationRevoked(address indexed user, string reason);
     event RetryAttempt(address indexed user, uint256 attemptNumber);
 
@@ -109,14 +90,10 @@ contract AadhaarVerificationManager is
         verificationLogger = IVerificationLogger(_verificationLogger);
         userRegistry = IUserIdentityRegistry(_userRegistry);
         trustScore = ITrustScore(_trustScore);
-        faceVerificationManager = IFaceVerificationManager(
-            _faceVerificationManager
-        );
+        faceVerificationManager = IFaceVerificationManager(_faceVerificationManager);
     }
 
-    function _authorizeUpgrade(
-        address newImplementation
-    ) internal override onlyRole(UPGRADER_ROLE) {}
+    function _authorizeUpgrade(address newImplementation) internal override onlyRole(UPGRADER_ROLE) {}
 
     function requestAadhaarVerification(
         bytes32 aadhaarHashCommitment,
@@ -124,49 +101,26 @@ contract AadhaarVerificationManager is
         string memory verificationMethod
     ) external nonReentrant {
         require(userRegistry.isRegistered(msg.sender), "User not registered");
-        require(
-            !userRegistry.isIdentityLocked(msg.sender),
-            "Identity is locked"
-        );
-        require(
-            faceVerificationManager.isFaceVerified(msg.sender),
-            "Face verification required first"
-        );
-        require(
-            !aadhaarVerifications[msg.sender].isActive,
-            "Aadhaar verification already active"
-        );
-        require(
-            !usedAadhaarHashes[aadhaarHashCommitment],
-            "Aadhaar hash already used"
-        );
+        require(!userRegistry.isIdentityLocked(msg.sender), "Identity is locked");
+        require(faceVerificationManager.isFaceVerified(msg.sender), "Face verification required first");
+        require(!aadhaarVerifications[msg.sender].isActive, "Aadhaar verification already active");
+        require(!usedAadhaarHashes[aadhaarHashCommitment], "Aadhaar hash already used");
         require(aadhaarHashCommitment != bytes32(0), "Invalid Aadhaar hash");
         require(otpHash != bytes32(0), "Invalid OTP hash");
-        require(
-            bytes(verificationMethod).length > 0,
-            "Empty verification method"
-        );
-        require(
-            failedAttempts[msg.sender] < MAX_FAILED_ATTEMPTS,
-            "Too many failed attempts"
-        );
+        require(bytes(verificationMethod).length > 0, "Empty verification method");
+        require(failedAttempts[msg.sender] < MAX_FAILED_ATTEMPTS, "Too many failed attempts");
 
         bytes32 methodHash = keccak256(bytes(verificationMethod));
 
         require(
-            methodHash == keccak256("OTP") ||
-                methodHash == keccak256("Biometric") ||
-                methodHash == keccak256("eKYC"),
+            methodHash == keccak256("OTP") || methodHash == keccak256("Biometric") || methodHash == keccak256("eKYC"),
             "Invalid verification method"
         );
 
         // Check retry cooldown
         AadhaarVerification storage existing = aadhaarVerifications[msg.sender];
         if (existing.retryCount > 0) {
-            require(
-                block.timestamp >= existing.lastRetry + RETRY_COOLDOWN,
-                "Retry cooldown not expired"
-            );
+            require(block.timestamp >= existing.lastRetry + RETRY_COOLDOWN, "Retry cooldown not expired");
         }
 
         aadhaarVerifications[msg.sender] = AadhaarVerification({
@@ -183,11 +137,7 @@ contract AadhaarVerificationManager is
 
         usedAadhaarHashes[aadhaarHashCommitment] = true;
 
-        verificationLogger.logEvent(
-            "AADHAAR_VERIFICATION_REQUESTED",
-            msg.sender,
-            aadhaarHashCommitment
-        );
+        verificationLogger.logEvent("AADHAAR_VERIFICATION_REQUESTED", msg.sender, aadhaarHashCommitment);
 
         emit AadhaarVerificationRequested(msg.sender, aadhaarHashCommitment);
 
@@ -196,29 +146,18 @@ contract AadhaarVerificationManager is
         }
     }
 
-    function completeAadhaarVerification(
-        address user,
-        bool success,
-        bytes memory uidaiSignature
-    ) public onlyRole(UIDAI_ORACLE_ROLE) {
-        require(
-            aadhaarVerifications[user].isActive,
-            "No active Aadhaar verification"
-        );
-        require(
-            _verifyUidaiSignature(user, success, uidaiSignature),
-            "Invalid UIDAI signature"
-        );
+    function completeAadhaarVerification(address user, bool success, bytes memory uidaiSignature)
+        public
+        onlyRole(UIDAI_ORACLE_ROLE)
+    {
+        require(aadhaarVerifications[user].isActive, "No active Aadhaar verification");
+        require(_verifyUidaiSignature(user, success, uidaiSignature), "Invalid UIDAI signature");
 
         aadhaarVerifications[user].isVerified = success;
 
         if (success) {
             userRegistry.updateVerificationStatus(user, "aadhaar", true);
-            trustScore.updateScore(
-                user,
-                int256(AADHAAR_VERIFICATION_SCORE),
-                "Aadhaar verification completed"
-            );
+            trustScore.updateScore(user, int256(AADHAAR_VERIFICATION_SCORE), "Aadhaar verification completed");
 
             // Reset failed attempts on success
             failedAttempts[user] = 0;
@@ -231,93 +170,52 @@ contract AadhaarVerificationManager is
         }
 
         verificationLogger.logEvent(
-            success
-                ? "AADHAAR_VERIFICATION_SUCCESS"
-                : "AADHAAR_VERIFICATION_FAILED",
+            success ? "AADHAAR_VERIFICATION_SUCCESS" : "AADHAAR_VERIFICATION_FAILED",
             user,
-            keccak256(
-                abi.encodePacked(
-                    aadhaarVerifications[user].verificationMethod,
-                    success
-                )
-            )
+            keccak256(abi.encodePacked(aadhaarVerifications[user].verificationMethod, success))
         );
 
-        emit AadhaarVerificationCompleted(
-            user,
-            success,
-            aadhaarVerifications[user].verificationMethod
-        );
+        emit AadhaarVerificationCompleted(user, success, aadhaarVerifications[user].verificationMethod);
     }
 
-    function revokeAadhaarVerification(
-        address user,
-        string memory reason
-    ) external onlyRole(VERIFIER_ROLE) {
+    function revokeAadhaarVerification(address user, string memory reason) external onlyRole(VERIFIER_ROLE) {
         require(aadhaarVerifications[user].isVerified, "Aadhaar not verified");
 
         aadhaarVerifications[user].isVerified = false;
         aadhaarVerifications[user].isActive = false;
 
         userRegistry.updateVerificationStatus(user, "aadhaar", false);
-        trustScore.updateScore(
-            user,
-            -int256(AADHAAR_VERIFICATION_SCORE),
-            "Aadhaar verification revoked"
-        );
+        trustScore.updateScore(user, -int256(AADHAAR_VERIFICATION_SCORE), "Aadhaar verification revoked");
 
-        verificationLogger.logEvent(
-            "AADHAAR_VERIFICATION_REVOKED",
-            user,
-            keccak256(bytes(reason))
-        );
+        verificationLogger.logEvent("AADHAAR_VERIFICATION_REVOKED", user, keccak256(bytes(reason)));
 
         emit AadhaarVerificationRevoked(user, reason);
     }
 
-    function resetFailedAttempts(
-        address user
-    ) external onlyRole(VERIFIER_ROLE) {
+    function resetFailedAttempts(address user) external onlyRole(VERIFIER_ROLE) {
         failedAttempts[user] = 0;
 
-        verificationLogger.logEvent(
-            "AADHAAR_VERIFICATION_ATTEMPTS_RESET",
-            user,
-            bytes32(0)
-        );
+        verificationLogger.logEvent("AADHAAR_VERIFICATION_ATTEMPTS_RESET", user, bytes32(0));
     }
 
-    function bulkCompleteAadhaarVerification(
-        address[] memory users,
-        bool[] memory successes,
-        bytes[] memory signatures
-    ) external onlyRole(UIDAI_ORACLE_ROLE) {
-        require(
-            users.length == successes.length &&
-                successes.length == signatures.length,
-            "Array lengths must match"
-        );
+    function bulkCompleteAadhaarVerification(address[] memory users, bool[] memory successes, bytes[] memory signatures)
+        external
+        onlyRole(UIDAI_ORACLE_ROLE)
+    {
+        require(users.length == successes.length && successes.length == signatures.length, "Array lengths must match");
 
         for (uint256 i = 0; i < users.length; i++) {
             if (aadhaarVerifications[users[i]].isActive) {
-                completeAadhaarVerification(
-                    users[i],
-                    successes[i],
-                    signatures[i]
-                );
+                completeAadhaarVerification(users[i], successes[i], signatures[i]);
             }
         }
     }
 
     function isAadhaarVerified(address user) external view returns (bool) {
-        return
-            aadhaarVerifications[user].isVerified &&
-            aadhaarVerifications[user].isActive;
+        return aadhaarVerifications[user].isVerified && aadhaarVerifications[user].isActive;
     }
 
-    function getAadhaarVerificationInfo(
-        address user
-    )
+    function getAadhaarVerificationInfo(address user)
         external
         view
         returns (
@@ -342,8 +240,9 @@ contract AadhaarVerificationManager is
 
     function canRetryVerification(address user) external view returns (bool) {
         if (failedAttempts[user] >= MAX_FAILED_ATTEMPTS) return false;
-        if (aadhaarVerifications[user].retryCount >= MAX_RETRY_ATTEMPTS)
+        if (aadhaarVerifications[user].retryCount >= MAX_RETRY_ATTEMPTS) {
             return false;
+        }
 
         AadhaarVerification memory verification = aadhaarVerifications[user];
         if (verification.retryCount > 0) {
@@ -353,9 +252,7 @@ contract AadhaarVerificationManager is
         return true;
     }
 
-    function getVerificationMethodStats(
-        string memory method
-    )
+    function getVerificationMethodStats(string memory method)
         external
         view
         returns (uint256 totalRequests, uint256 successfulVerifications)
@@ -365,11 +262,7 @@ contract AadhaarVerificationManager is
         return (0, 0);
     }
 
-    function _verifyUidaiSignature(
-        address user,
-        bool success,
-        bytes memory signature
-    ) private pure returns (bool) {
+    function _verifyUidaiSignature(address user, bool success, bytes memory signature) private pure returns (bool) {
         // Enhanced UIDAI signature verification
         require(signature.length >= 65, "Invalid signature length"); // Minimum signature length
         require(user != address(0), "Invalid user address");

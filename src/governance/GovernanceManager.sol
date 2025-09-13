@@ -9,43 +9,21 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 interface ITrustScore {
     function getTrustScore(address user) external view returns (uint256);
 
-    function updateScore(
-        address user,
-        int256 delta,
-        string memory reason
-    ) external;
+    function updateScore(address user, int256 delta, string memory reason) external;
 }
 
 interface IVerificationLogger {
-    function logEvent(
-        string memory eventType,
-        address user,
-        bytes32 dataHash
-    ) external;
+    function logEvent(string memory eventType, address user, bytes32 dataHash) external;
 }
 
 interface IEconomicIncentives {
-    function getStakeInfo(
-        address user
-    )
+    function getStakeInfo(address user)
         external
         view
-        returns (
-            uint256 amount,
-            uint256 stakedAt,
-            bool isActive,
-            uint256 lockExpiry,
-            bool isSlashed,
-            uint256 tier
-        );
+        returns (uint256 amount, uint256 stakedAt, bool isActive, uint256 lockExpiry, bool isSlashed, uint256 tier);
 }
 
-contract GovernanceManager is
-    Initializable,
-    AccessControlUpgradeable,
-    ReentrancyGuardUpgradeable,
-    UUPSUpgradeable
-{
+contract GovernanceManager is Initializable, AccessControlUpgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable {
     bytes32 public constant GOVERNOR_ROLE = keccak256("GOVERNOR_ROLE");
     bytes32 public constant EXECUTOR_ROLE = keccak256("EXECUTOR_ROLE");
     bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
@@ -65,6 +43,7 @@ contract GovernanceManager is
         Technical,
         Community
     }
+
     struct Proposal {
         uint256 id;
         address proposer;
@@ -86,6 +65,7 @@ contract GovernanceManager is
         uint256 quorumRequired;
         uint256 approvalThreshold;
     }
+
     struct Vote {
         bool hasVoted;
         uint8 support; // 0=against, 1=for, 2=abstain
@@ -93,6 +73,7 @@ contract GovernanceManager is
         uint256 timestamp;
         string reason;
     }
+
     struct GovernanceConfig {
         uint256 votingDelay;
         uint256 votingPeriod;
@@ -115,29 +96,13 @@ contract GovernanceManager is
     IEconomicIncentives public economicIncentives;
 
     event ProposalCreated(
-        uint256 indexed proposalId,
-        address indexed proposer,
-        ProposalType proposalType,
-        string title
+        uint256 indexed proposalId, address indexed proposer, ProposalType proposalType, string title
     );
-    event VoteCast(
-        uint256 indexed proposalId,
-        address indexed voter,
-        uint8 support,
-        uint256 weight,
-        string reason
-    );
+    event VoteCast(uint256 indexed proposalId, address indexed voter, uint8 support, uint256 weight, string reason);
     event ProposalExecuted(uint256 indexed proposalId);
     event ProposalCancelled(uint256 indexed proposalId, string reason);
-    event ProposalStateChanged(
-        uint256 indexed proposalId,
-        ProposalState newState
-    );
-    event GovernanceConfigUpdated(
-        ProposalType proposalType,
-        string parameter,
-        uint256 newValue
-    );
+    event ProposalStateChanged(uint256 indexed proposalId, ProposalState newState);
+    event GovernanceConfigUpdated(ProposalType proposalType, string parameter, uint256 newValue);
     event SystemPaused(address indexed pauser, string reason);
     event SystemUnpaused(address indexed unpauser);
 
@@ -146,11 +111,10 @@ contract GovernanceManager is
         _disableInitializers();
     }
 
-    function initialize(
-        address _trustScore,
-        address _verificationLogger,
-        address _economicIncentives
-    ) public initializer {
+    function initialize(address _trustScore, address _verificationLogger, address _economicIncentives)
+        public
+        initializer
+    {
         __AccessControl_init();
         __ReentrancyGuard_init();
         __UUPSUpgradeable_init();
@@ -165,9 +129,7 @@ contract GovernanceManager is
         _initializeGovernanceConfigs();
     }
 
-    function _authorizeUpgrade(
-        address newImplementation
-    ) internal override onlyRole(UPGRADER_ROLE) {}
+    function _authorizeUpgrade(address newImplementation) internal override onlyRole(UPGRADER_ROLE) {}
 
     function createProposal(
         ProposalType proposalType,
@@ -180,18 +142,11 @@ contract GovernanceManager is
     ) external nonReentrant returns (uint256) {
         require(!systemPaused, "System is paused");
         require(bytes(title).length > 0, "Title required");
-        require(
-            targets.length == values.length &&
-                values.length == callDatas.length,
-            "Arrays length mismatch"
-        );
+        require(targets.length == values.length && values.length == callDatas.length, "Arrays length mismatch");
 
         GovernanceConfig memory config = governanceConfigs[proposalType];
         uint256 proposerWeight = getVotingWeight(msg.sender);
-        require(
-            proposerWeight >= config.proposalThreshold,
-            "Insufficient voting weight"
-        );
+        require(proposerWeight >= config.proposalThreshold, "Insufficient voting weight");
 
         proposalCounter++;
         uint256 proposalId = proposalCounter;
@@ -225,17 +180,13 @@ contract GovernanceManager is
         verificationLogger.logEvent(
             "GOVERNANCE_PROPOSAL_CREATED",
             msg.sender,
-            keccak256(
-                abi.encodePacked(proposalId, title, uint256(proposalType))
-            )
+            keccak256(abi.encodePacked(proposalId, title, uint256(proposalType)))
         );
         emit ProposalCreated(proposalId, msg.sender, proposalType, title);
         return proposalId;
     }
 
-    function getProposalMeta(
-        uint256 proposalId
-    )
+    function getProposalMeta(uint256 proposalId)
         external
         view
         returns (
@@ -256,9 +207,7 @@ contract GovernanceManager is
         metadataUri = prop.metadataUri;
     }
 
-    function getProposalVoting(
-        uint256 proposalId
-    )
+    function getProposalVoting(uint256 proposalId)
         external
         view
         returns (
@@ -289,9 +238,7 @@ contract GovernanceManager is
 
     function getVotingWeight(address user) public view returns (uint256) {
         uint256 trustScoreWeight = trustScore.getTrustScore(user);
-        (, , bool isActive, , , uint256 tier) = economicIncentives.getStakeInfo(
-            user
-        );
+        (,, bool isActive,,, uint256 tier) = economicIncentives.getStakeInfo(user);
 
         uint256 stakingMultiplier = isActive ? (100 + (tier * 25)) : 100;
         uint256 weight = (trustScoreWeight * stakingMultiplier) / 100;

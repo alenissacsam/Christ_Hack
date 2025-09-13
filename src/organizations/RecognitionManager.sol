@@ -8,27 +8,17 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 interface IVerificationLogger {
-    function logEvent(
-        string memory eventType,
-        address user,
-        bytes32 dataHash
-    ) external;
+    function logEvent(string memory eventType, address user, bytes32 dataHash) external;
 }
 
 interface ITrustScore {
     function getTrustScore(address user) external view returns (uint256);
 
-    function updateScore(
-        address user,
-        int256 delta,
-        string memory reason
-    ) external;
+    function updateScore(address user, int256 delta, string memory reason) external;
 }
 
 interface ICertificateManager {
-    function getCertificatesByHolder(
-        address holder
-    ) external view returns (uint256[] memory);
+    function getCertificatesByHolder(address holder) external view returns (uint256[] memory);
 }
 
 contract RecognitionManager is
@@ -80,6 +70,7 @@ contract RecognitionManager is
         bytes32 criteriaHash;
         uint256 validityPeriod;
     }
+
     struct UserBadgeInfo {
         uint256 earnedAt;
         uint256 expiresAt;
@@ -98,46 +89,23 @@ contract RecognitionManager is
     IVerificationLogger public verificationLogger;
     ICertificateManager public certificateManager;
 
-    event BadgeCreated(
-        uint256 indexed badgeId,
-        BadgeType badgeType,
-        BadgeRarity rarity,
-        string name,
-        address creator
-    );
-    event BadgeAwarded(
-        uint256 indexed badgeId,
-        address indexed recipient,
-        string reason
-    );
-    event BadgeRevoked(
-        uint256 indexed badgeId,
-        address indexed user,
-        string reason
-    );
+    event BadgeCreated(uint256 indexed badgeId, BadgeType badgeType, BadgeRarity rarity, string name, address creator);
+    event BadgeAwarded(uint256 indexed badgeId, address indexed recipient, string reason);
+    event BadgeRevoked(uint256 indexed badgeId, address indexed user, string reason);
     event BadgeExpired(uint256 indexed badgeId, address indexed user);
-    event BadgeRenewed(
-        uint256 indexed badgeId,
-        address indexed user,
-        uint256 newExpiryDate
-    );
+    event BadgeRenewed(uint256 indexed badgeId, address indexed user, uint256 newExpiryDate);
     event BadgeUpdated(uint256 indexed badgeId, string field);
-    event AutoBadgeAwarded(
-        uint256 indexed badgeId,
-        address indexed recipient,
-        string trigger
-    );
+    event AutoBadgeAwarded(uint256 indexed badgeId, address indexed recipient, string trigger);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
     }
 
-    function initialize(
-        address _trustScore,
-        address _verificationLogger,
-        address _certificateManager
-    ) public initializer {
+    function initialize(address _trustScore, address _verificationLogger, address _certificateManager)
+        public
+        initializer
+    {
         __ERC1155_init("https://api.educert.org/badge/{id}.json");
         __AccessControl_init();
         __ReentrancyGuard_init();
@@ -155,9 +123,7 @@ contract RecognitionManager is
         _createDefaultBadges();
     }
 
-    function _authorizeUpgrade(
-        address
-    ) internal override onlyRole(UPGRADER_ROLE) {}
+    function _authorizeUpgrade(address) internal override onlyRole(UPGRADER_ROLE) {}
 
     function createBadge(
         BadgeType badgeType,
@@ -200,44 +166,26 @@ contract RecognitionManager is
         badgesByRarity[rarity].push(badgeId);
 
         verificationLogger.logEvent(
-            "BADGE_CREATED",
-            msg.sender,
-            keccak256(
-                abi.encodePacked(
-                    badgeId,
-                    name,
-                    uint256(badgeType),
-                    uint256(rarity)
-                )
-            )
+            "BADGE_CREATED", msg.sender, keccak256(abi.encodePacked(badgeId, name, uint256(badgeType), uint256(rarity)))
         );
         emit BadgeCreated(badgeId, badgeType, rarity, name, msg.sender);
         return badgeId;
     }
 
-    function awardBadge(
-        uint256 badgeId,
-        address recipient,
-        string memory reason,
-        bytes32 evidenceHash
-    ) public onlyRole(MINTER_ROLE) nonReentrant {
+    function awardBadge(uint256 badgeId, address recipient, string memory reason, bytes32 evidenceHash)
+        public
+        onlyRole(MINTER_ROLE)
+        nonReentrant
+    {
         Badge storage bd = badges[badgeId];
         require(bd.isActive, "Badge not active");
-        require(
-            bd.currentSupply < bd.maxSupply || bd.maxSupply == 0,
-            "Max supply reached"
-        );
+        require(bd.currentSupply < bd.maxSupply || bd.maxSupply == 0, "Max supply reached");
         require(balanceOf(recipient, badgeId) == 0, "Badge already awarded");
 
         uint256 userTrustScore = trustScore.getTrustScore(recipient);
-        require(
-            userTrustScore >= bd.requiredTrustScore,
-            "Insufficient trust score"
-        );
+        require(userTrustScore >= bd.requiredTrustScore, "Insufficient trust score");
 
-        uint256 expiresAt = bd.validityPeriod > 0
-            ? block.timestamp + bd.validityPeriod
-            : 0;
+        uint256 expiresAt = bd.validityPeriod > 0 ? block.timestamp + bd.validityPeriod : 0;
 
         userBadges[recipient][badgeId] = UserBadgeInfo({
             earnedAt: block.timestamp,
@@ -255,18 +203,12 @@ contract RecognitionManager is
         trustScore.updateScore(recipient, trustScoreReward, "Badge earned");
 
         verificationLogger.logEvent(
-            "BADGE_AWARDED",
-            recipient,
-            keccak256(abi.encodePacked(badgeId, reason, evidenceHash))
+            "BADGE_AWARDED", recipient, keccak256(abi.encodePacked(badgeId, reason, evidenceHash))
         );
         emit BadgeAwarded(badgeId, recipient, reason);
     }
 
-    function revokeBadge(
-        uint256 badgeId,
-        address user,
-        string memory reason
-    ) external onlyRole(BADGE_ADMIN_ROLE) {
+    function revokeBadge(uint256 badgeId, address user, string memory reason) external onlyRole(BADGE_ADMIN_ROLE) {
         require(balanceOf(user, badgeId) > 0, "Badge not owned");
         UserBadgeInfo storage info = userBadges[user][badgeId];
         require(!info.isRevoked, "Badge already revoked");
@@ -279,19 +221,13 @@ contract RecognitionManager is
         int256 penalty = -_getBadgeTrustScore(badges[badgeId].rarity);
         trustScore.updateScore(user, penalty, "Badge revoked");
 
-        verificationLogger.logEvent(
-            "BADGE_REVOKED",
-            user,
-            keccak256(abi.encodePacked(badgeId, reason))
-        );
+        verificationLogger.logEvent("BADGE_REVOKED", user, keccak256(abi.encodePacked(badgeId, reason)));
         emit BadgeRevoked(badgeId, user, reason);
     }
 
     // ... Additional functions omitted for brevity, but use same field-by-field pattern ...
 
-    function supportsInterface(
-        bytes4 interfaceId
-    )
+    function supportsInterface(bytes4 interfaceId)
         public
         view
         override(ERC1155Upgradeable, AccessControlUpgradeable)
@@ -304,7 +240,7 @@ contract RecognitionManager is
 
     function _removeFromBadgeList(address user, uint256 badgeId) private {
         uint256[] storage list = userBadgeList[user];
-        for (uint i = 0; i < list.length; i++) {
+        for (uint256 i = 0; i < list.length; i++) {
             if (list[i] == badgeId) {
                 list[i] = list[list.length - 1];
                 list.pop();
@@ -313,9 +249,7 @@ contract RecognitionManager is
         }
     }
 
-    function _getBadgeTrustScore(
-        BadgeRarity rarity
-    ) private pure returns (int256) {
+    function _getBadgeTrustScore(BadgeRarity rarity) private pure returns (int256) {
         if (rarity == BadgeRarity.Legendary) return 50;
         if (rarity == BadgeRarity.Epic) return 25;
         if (rarity == BadgeRarity.Rare) return 15;

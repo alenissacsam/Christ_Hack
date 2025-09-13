@@ -31,17 +31,12 @@ import {PaymasterManager} from "src/advanced_features/PaymasterManager.sol";
 import {MigrationManager} from "src/advanced_features/MigrationManager.sol";
 
 contract DeployEduCertSystem is Script {
-    address constant COMMUNITY_WALLET =
-        0x1000000000000000000000000000000000000001;
+    address constant COMMUNITY_WALLET = 0x1000000000000000000000000000000000000001;
     address constant TEAM_WALLET = 0x2000000000000000000000000000000000000002;
-    address constant TREASURY_WALLET =
-        0x3000000000000000000000000000000000000003;
-    address constant ECOSYSTEM_WALLET =
-        0x4000000000000000000000000000000000000004;
-    address constant LAYERZERO_ENDPOINT =
-        0x3c2269811836af69497E5F486A85D7316753cf62;
-    address constant WALLET_IMPLEMENTATION =
-        0x5000000000000000000000000000000000000005;
+    address constant TREASURY_WALLET = 0x3000000000000000000000000000000000000003;
+    address constant ECOSYSTEM_WALLET = 0x4000000000000000000000000000000000000004;
+    address constant LAYERZERO_ENDPOINT = 0x3c2269811836af69497E5F486A85D7316753cf62;
+    address constant WALLET_IMPLEMENTATION = 0x5000000000000000000000000000000000000005;
     address constant ENTRY_POINT = 0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789;
 
     struct Deployed {
@@ -72,19 +67,10 @@ contract DeployEduCertSystem is Script {
         uint256 pk = vm.envUint("PRIVATE_KEY");
 
         // Validate wallet addresses are set and non-zero
-        require(
-            COMMUNITY_WALLET != address(0),
-            "COMMUNITY_WALLET not configured"
-        );
+        require(COMMUNITY_WALLET != address(0), "COMMUNITY_WALLET not configured");
         require(TEAM_WALLET != address(0), "TEAM_WALLET not configured");
-        require(
-            TREASURY_WALLET != address(0),
-            "TREASURY_WALLET not configured"
-        );
-        require(
-            ECOSYSTEM_WALLET != address(0),
-            "ECOSYSTEM_WALLET not configured"
-        );
+        require(TREASURY_WALLET != address(0), "TREASURY_WALLET not configured");
+        require(ECOSYSTEM_WALLET != address(0), "ECOSYSTEM_WALLET not configured");
 
         console.log("=== STARTING EDUCERT SYSTEM DEPLOYMENT ===");
         console.log("Deployer:", vm.addr(pk));
@@ -96,41 +82,31 @@ contract DeployEduCertSystem is Script {
         // 1. VerificationLogger
         {
             address impl = address(new VerificationLogger());
-            bytes memory init = abi.encodeWithSelector(
-                VerificationLogger.initialize.selector
-                // add args if any
-            );
+            bytes memory init = abi.encodeWithSelector(VerificationLogger.initialize.selector);
+            // add args if any
+
             d.verificationLogger = address(new ERC1967Proxy(impl, init));
         }
 
         // 2. TrustScore
         {
             address impl = address(new TrustScore());
-            bytes memory init = abi.encodeWithSelector(
-                TrustScore.initialize.selector,
-                d.verificationLogger
-            );
+            bytes memory init = abi.encodeWithSelector(TrustScore.initialize.selector, d.verificationLogger);
             d.trustScore = address(new ERC1967Proxy(impl, init));
         }
 
         // 3. UserIdentityRegistry
         {
             address impl = address(new UserIdentityRegistry());
-            bytes memory init = abi.encodeWithSelector(
-                UserIdentityRegistry.initialize.selector,
-                d.verificationLogger,
-                d.trustScore
-            );
+            bytes memory init =
+                abi.encodeWithSelector(UserIdentityRegistry.initialize.selector, d.verificationLogger, d.trustScore);
             d.userRegistry = address(new ERC1967Proxy(impl, init));
         }
 
         // 4. ContractRegistry
         {
             address impl = address(new ContractRegistry());
-            bytes memory init = abi.encodeWithSelector(
-                ContractRegistry.initialize.selector,
-                d.verificationLogger
-            );
+            bytes memory init = abi.encodeWithSelector(ContractRegistry.initialize.selector, d.verificationLogger);
             d.contractRegistry = address(new ERC1967Proxy(impl, init));
         }
 
@@ -152,10 +128,7 @@ contract DeployEduCertSystem is Script {
         {
             address impl = address(new FaceVerificationManager());
             bytes memory init = abi.encodeWithSelector(
-                FaceVerificationManager.initialize.selector,
-                d.verificationLogger,
-                d.userRegistry,
-                d.trustScore
+                FaceVerificationManager.initialize.selector, d.verificationLogger, d.userRegistry, d.trustScore
             );
             d.faceVerifier = address(new ERC1967Proxy(impl, init));
         }
@@ -190,10 +163,7 @@ contract DeployEduCertSystem is Script {
         {
             address impl = address(new CertificateManager());
             bytes memory init = abi.encodeWithSelector(
-                CertificateManager.initialize.selector,
-                d.verificationLogger,
-                d.userRegistry,
-                d.trustScore
+                CertificateManager.initialize.selector, d.verificationLogger, d.userRegistry, d.trustScore
             );
             d.certificateManager = address(new ERC1967Proxy(impl, init));
         }
@@ -214,10 +184,7 @@ contract DeployEduCertSystem is Script {
         {
             address impl = address(new RecognitionManager());
             bytes memory init = abi.encodeWithSelector(
-                RecognitionManager.initialize.selector,
-                d.trustScore,
-                d.verificationLogger,
-                d.certificateManager
+                RecognitionManager.initialize.selector, d.trustScore, d.verificationLogger, d.certificateManager
             );
             d.recognitionManager = address(new ERC1967Proxy(impl, init));
         }
@@ -238,10 +205,7 @@ contract DeployEduCertSystem is Script {
         {
             address impl = address(new GovernanceManager());
             bytes memory init = abi.encodeWithSelector(
-                GovernanceManager.initialize.selector,
-                d.trustScore,
-                d.verificationLogger,
-                d.economicIncentives
+                GovernanceManager.initialize.selector, d.trustScore, d.verificationLogger, d.economicIncentives
             );
             d.governanceManager = address(new ERC1967Proxy(impl, init));
         }
@@ -250,10 +214,7 @@ contract DeployEduCertSystem is Script {
         {
             address impl = address(new GuardianManager());
             bytes memory init = abi.encodeWithSelector(
-                GuardianManager.initialize.selector,
-                d.verificationLogger,
-                d.userRegistry,
-                d.trustScore
+                GuardianManager.initialize.selector, d.verificationLogger, d.userRegistry, d.trustScore
             );
             d.guardianManager = address(new ERC1967Proxy(impl, init));
         }
@@ -274,22 +235,16 @@ contract DeployEduCertSystem is Script {
         // 16. PrivacyManager
         {
             address impl = address(new PrivacyManager());
-            bytes memory init = abi.encodeWithSelector(
-                PrivacyManager.initialize.selector,
-                d.verificationLogger,
-                d.userRegistry
-            );
+            bytes memory init =
+                abi.encodeWithSelector(PrivacyManager.initialize.selector, d.verificationLogger, d.userRegistry);
             d.privacyManager = address(new ERC1967Proxy(impl, init));
         }
 
         // 17. CrossChainManager
         {
             address impl = address(new CrossChainManager());
-            bytes memory init = abi.encodeWithSelector(
-                CrossChainManager.initialize.selector,
-                d.verificationLogger,
-                LAYERZERO_ENDPOINT
-            );
+            bytes memory init =
+                abi.encodeWithSelector(CrossChainManager.initialize.selector, d.verificationLogger, LAYERZERO_ENDPOINT);
             d.crossChainManager = address(new ERC1967Proxy(impl, init));
         }
 
@@ -297,10 +252,7 @@ contract DeployEduCertSystem is Script {
         {
             address impl = address(new GlobalCredentialAnchor());
             bytes memory init = abi.encodeWithSelector(
-                GlobalCredentialAnchor.initialize.selector,
-                d.verificationLogger,
-                d.crossChainManager,
-                d.privacyManager
+                GlobalCredentialAnchor.initialize.selector, d.verificationLogger, d.crossChainManager, d.privacyManager
             );
             d.globalCredentialAnchor = address(new ERC1967Proxy(impl, init));
         }
@@ -323,11 +275,7 @@ contract DeployEduCertSystem is Script {
         {
             address impl = address(new PaymasterManager());
             bytes memory init = abi.encodeWithSelector(
-                PaymasterManager.initialize.selector,
-                d.verificationLogger,
-                d.trustScore,
-                ENTRY_POINT,
-                d.systemToken
+                PaymasterManager.initialize.selector, d.verificationLogger, d.trustScore, ENTRY_POINT, d.systemToken
             );
             d.paymasterManager = address(new ERC1967Proxy(impl, init));
         }
@@ -335,11 +283,8 @@ contract DeployEduCertSystem is Script {
         // 21. MigrationManager
         {
             address impl = address(new MigrationManager());
-            bytes memory init = abi.encodeWithSelector(
-                MigrationManager.initialize.selector,
-                d.verificationLogger,
-                d.contractRegistry
-            );
+            bytes memory init =
+                abi.encodeWithSelector(MigrationManager.initialize.selector, d.verificationLogger, d.contractRegistry);
             d.migrationManager = address(new ERC1967Proxy(impl, init));
         }
 
@@ -392,14 +337,12 @@ contract DeployEduCertSystem is Script {
         _registerContracts(d);
     }
 
-    function _registerContracts(Deployed memory /* d */) internal pure {
+    function _registerContracts(Deployed memory /* d */ ) internal pure {
         // This function would register all deployed contracts in the ContractRegistry
         // for easy access and upgradability. Implementation would require additional
         // transactions after deployment.
         console.log("\n=== CONTRACT REGISTRATION REQUIRED ===");
-        console.log(
-            "Post-deployment: Register all contracts in ContractRegistry"
-        );
+        console.log("Post-deployment: Register all contracts in ContractRegistry");
         console.log("Post-deployment: Set up proper role assignments");
         console.log("Post-deployment: Configure inter-contract dependencies");
     }

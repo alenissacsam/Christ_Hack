@@ -63,45 +63,36 @@ contract ConfigureEduCertSystem is Script {
         console.log("All contracts registered and configured successfully");
     }
 
-    function _loadContractAddresses()
-        internal
-        pure
-        returns (DeployedContracts memory)
-    {
+    function _loadContractAddresses() internal pure returns (DeployedContracts memory) {
         // In a real deployment, these would be loaded from environment variables
         // or from the previous deployment output
-        return
-            DeployedContracts({
-                verificationLogger: address(0), // Load from env: VERIFICATION_LOGGER_ADDRESS
-                trustScore: address(0), // Load from env: TRUST_SCORE_ADDRESS
-                userRegistry: address(0), // Load from env: USER_REGISTRY_ADDRESS
-                contractRegistry: address(0), // Load from env: CONTRACT_REGISTRY_ADDRESS
-                systemToken: address(0), // Load from env: SYSTEM_TOKEN_ADDRESS
-                faceVerifier: address(0), // Load from env: FACE_VERIFIER_ADDRESS
-                aadhaarVerifier: address(0), // Load from env: AADHAAR_VERIFIER_ADDRESS
-                incomeVerifier: address(0), // Load from env: INCOME_VERIFIER_ADDRESS
-                certificateManager: address(0), // Load from env: CERTIFICATE_MANAGER_ADDRESS
-                organizationRegistry: address(0), // Load from env: ORGANIZATION_REGISTRY_ADDRESS
-                recognitionManager: address(0), // Load from env: RECOGNITION_MANAGER_ADDRESS
-                economicIncentives: address(0), // Load from env: ECONOMIC_INCENTIVES_ADDRESS
-                governanceManager: address(0), // Load from env: GOVERNANCE_MANAGER_ADDRESS
-                guardianManager: address(0), // Load from env: GUARDIAN_MANAGER_ADDRESS
-                disputeResolution: address(0), // Load from env: DISPUTE_RESOLUTION_ADDRESS
-                privacyManager: address(0), // Load from env: PRIVACY_MANAGER_ADDRESS
-                crossChainManager: address(0), // Load from env: CROSS_CHAIN_MANAGER_ADDRESS
-                globalCredentialAnchor: address(0), // Load from env: GLOBAL_CREDENTIAL_ANCHOR_ADDRESS
-                aaWalletManager: address(0), // Load from env: AA_WALLET_MANAGER_ADDRESS
-                paymasterManager: address(0), // Load from env: PAYMASTER_MANAGER_ADDRESS
-                migrationManager: address(0) // Load from env: MIGRATION_MANAGER_ADDRESS
-            });
+        return DeployedContracts({
+            verificationLogger: address(0), // Load from env: VERIFICATION_LOGGER_ADDRESS
+            trustScore: address(0), // Load from env: TRUST_SCORE_ADDRESS
+            userRegistry: address(0), // Load from env: USER_REGISTRY_ADDRESS
+            contractRegistry: address(0), // Load from env: CONTRACT_REGISTRY_ADDRESS
+            systemToken: address(0), // Load from env: SYSTEM_TOKEN_ADDRESS
+            faceVerifier: address(0), // Load from env: FACE_VERIFIER_ADDRESS
+            aadhaarVerifier: address(0), // Load from env: AADHAAR_VERIFIER_ADDRESS
+            incomeVerifier: address(0), // Load from env: INCOME_VERIFIER_ADDRESS
+            certificateManager: address(0), // Load from env: CERTIFICATE_MANAGER_ADDRESS
+            organizationRegistry: address(0), // Load from env: ORGANIZATION_REGISTRY_ADDRESS
+            recognitionManager: address(0), // Load from env: RECOGNITION_MANAGER_ADDRESS
+            economicIncentives: address(0), // Load from env: ECONOMIC_INCENTIVES_ADDRESS
+            governanceManager: address(0), // Load from env: GOVERNANCE_MANAGER_ADDRESS
+            guardianManager: address(0), // Load from env: GUARDIAN_MANAGER_ADDRESS
+            disputeResolution: address(0), // Load from env: DISPUTE_RESOLUTION_ADDRESS
+            privacyManager: address(0), // Load from env: PRIVACY_MANAGER_ADDRESS
+            crossChainManager: address(0), // Load from env: CROSS_CHAIN_MANAGER_ADDRESS
+            globalCredentialAnchor: address(0), // Load from env: GLOBAL_CREDENTIAL_ANCHOR_ADDRESS
+            aaWalletManager: address(0), // Load from env: AA_WALLET_MANAGER_ADDRESS
+            paymasterManager: address(0), // Load from env: PAYMASTER_MANAGER_ADDRESS
+            migrationManager: address(0) // Load from env: MIGRATION_MANAGER_ADDRESS
+        });
     }
 
-    function _registerAllContracts(
-        DeployedContracts memory contracts
-    ) internal {
-        ContractRegistry registry = ContractRegistry(
-            contracts.contractRegistry
-        );
+    function _registerAllContracts(DeployedContracts memory contracts) internal {
+        ContractRegistry registry = ContractRegistry(contracts.contractRegistry);
 
         // Register core contracts
         string[] memory names = new string[](21);
@@ -175,9 +166,7 @@ contract ConfigureEduCertSystem is Script {
         // Register contracts in batches to avoid gas limit issues
         uint256 batchSize = 10;
         for (uint256 i = 0; i < names.length; i += batchSize) {
-            uint256 end = i + batchSize > names.length
-                ? names.length
-                : i + batchSize;
+            uint256 end = i + batchSize > names.length ? names.length : i + batchSize;
             uint256 currentBatchSize = end - i;
 
             string[] memory batchNames = new string[](currentBatchSize);
@@ -190,11 +179,7 @@ contract ConfigureEduCertSystem is Script {
                 batchVersions[j] = versions[i + j];
             }
 
-            registry.batchRegisterContracts(
-                batchNames,
-                batchAddresses,
-                batchVersions
-            );
+            registry.batchRegisterContracts(batchNames, batchAddresses, batchVersions);
         }
 
         console.log("All contracts registered in ContractRegistry");
@@ -204,64 +189,28 @@ contract ConfigureEduCertSystem is Script {
         // Configure role assignments for proper inter-contract communication
 
         // Grant CertificateManager roles to OrganizationRegistry
-        CertificateManager certManager = CertificateManager(
-            contracts.certificateManager
-        );
-        certManager.grantRole(
-            certManager.ISSUER_ROLE(),
-            contracts.organizationRegistry
-        );
+        CertificateManager certManager = CertificateManager(contracts.certificateManager);
+        certManager.grantRole(certManager.ISSUER_ROLE(), contracts.organizationRegistry);
 
         // Grant UserRegistry roles to verification managers
-        UserIdentityRegistry userRegistry = UserIdentityRegistry(
-            contracts.userRegistry
-        );
-        userRegistry.grantRole(
-            userRegistry.REGISTRY_MANAGER_ROLE(),
-            contracts.faceVerifier
-        );
-        userRegistry.grantRole(
-            userRegistry.REGISTRY_MANAGER_ROLE(),
-            contracts.aadhaarVerifier
-        );
-        userRegistry.grantRole(
-            userRegistry.REGISTRY_MANAGER_ROLE(),
-            contracts.incomeVerifier
-        );
+        UserIdentityRegistry userRegistry = UserIdentityRegistry(contracts.userRegistry);
+        userRegistry.grantRole(userRegistry.REGISTRY_MANAGER_ROLE(), contracts.faceVerifier);
+        userRegistry.grantRole(userRegistry.REGISTRY_MANAGER_ROLE(), contracts.aadhaarVerifier);
+        userRegistry.grantRole(userRegistry.REGISTRY_MANAGER_ROLE(), contracts.incomeVerifier);
 
         // Grant TrustScore roles to various managers
         TrustScore trustScore = TrustScore(contracts.trustScore);
-        trustScore.grantRole(
-            trustScore.SCORE_MANAGER_ROLE(),
-            contracts.faceVerifier
-        );
-        trustScore.grantRole(
-            trustScore.SCORE_MANAGER_ROLE(),
-            contracts.aadhaarVerifier
-        );
-        trustScore.grantRole(
-            trustScore.SCORE_MANAGER_ROLE(),
-            contracts.incomeVerifier
-        );
-        trustScore.grantRole(
-            trustScore.SCORE_MANAGER_ROLE(),
-            contracts.certificateManager
-        );
-        trustScore.grantRole(
-            trustScore.SCORE_MANAGER_ROLE(),
-            contracts.recognitionManager
-        );
-        trustScore.grantRole(
-            trustScore.SCORE_MANAGER_ROLE(),
-            contracts.economicIncentives
-        );
+        trustScore.grantRole(trustScore.SCORE_MANAGER_ROLE(), contracts.faceVerifier);
+        trustScore.grantRole(trustScore.SCORE_MANAGER_ROLE(), contracts.aadhaarVerifier);
+        trustScore.grantRole(trustScore.SCORE_MANAGER_ROLE(), contracts.incomeVerifier);
+        trustScore.grantRole(trustScore.SCORE_MANAGER_ROLE(), contracts.certificateManager);
+        trustScore.grantRole(trustScore.SCORE_MANAGER_ROLE(), contracts.recognitionManager);
+        trustScore.grantRole(trustScore.SCORE_MANAGER_ROLE(), contracts.economicIncentives);
 
         console.log("Role assignments configured");
     }
 
-    function _configureIntegrations(
-        DeployedContracts memory /* contracts */
-    ) internal pure {
+    function _configureIntegrations(DeployedContracts memory /* contracts */ ) internal pure {
         // Additional integration configurations would go here
         // This might include setting up cross-chain configurations,
         // economic incentive parameters, governance voting parameters, etc.

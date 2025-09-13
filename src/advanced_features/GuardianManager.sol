@@ -7,11 +7,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 interface IVerificationLogger {
-    function logEvent(
-        string memory eventType,
-        address user,
-        bytes32 dataHash
-    ) external;
+    function logEvent(string memory eventType, address user, bytes32 dataHash) external;
 }
 
 interface IUserIdentityRegistry {
@@ -26,14 +22,8 @@ interface ITrustScore {
     function unlockScore(address user) external;
 }
 
-contract GuardianManager is
-    Initializable,
-    AccessControlUpgradeable,
-    ReentrancyGuardUpgradeable,
-    UUPSUpgradeable
-{
-    bytes32 public constant GUARDIAN_ADMIN_ROLE =
-        keccak256("GUARDIAN_ADMIN_ROLE");
+contract GuardianManager is Initializable, AccessControlUpgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable {
+    bytes32 public constant GUARDIAN_ADMIN_ROLE = keccak256("GUARDIAN_ADMIN_ROLE");
     bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
 
     struct Guardian {
@@ -93,28 +83,13 @@ contract GuardianManager is
     uint256 public constant RECOVERY_EXECUTION_DELAY = 48 hours;
     uint256 public constant MAX_GUARDIANS = 5;
 
-    event GuardianAdded(
-        address indexed user,
-        address indexed guardian,
-        string relationship
-    );
-    event GuardianRemoved(
-        address indexed user,
-        address indexed guardian,
-        string reason
-    );
+    event GuardianAdded(address indexed user, address indexed guardian, string relationship);
+    event GuardianRemoved(address indexed user, address indexed guardian, string reason);
     event GuardianChangeProposed(
-        bytes32 indexed changeId,
-        address indexed user,
-        address indexed guardian,
-        bool isAddition
+        bytes32 indexed changeId, address indexed user, address indexed guardian, bool isAddition
     );
     event GuardianChangeExecuted(bytes32 indexed changeId);
-    event RecoveryProposed(
-        bytes32 indexed recoveryId,
-        address indexed user,
-        address indexed newWallet
-    );
+    event RecoveryProposed(bytes32 indexed recoveryId, address indexed user, address indexed newWallet);
     event RecoveryVoted(bytes32 indexed recoveryId, address indexed guardian);
     event RecoveryExecuted(bytes32 indexed recoveryId, address indexed user);
     event RecoveryCancelled(bytes32 indexed recoveryId, string reason);
@@ -125,11 +100,7 @@ contract GuardianManager is
         _disableInitializers();
     }
 
-    function initialize(
-        address _verificationLogger,
-        address _userRegistry,
-        address _trustScore
-    ) public initializer {
+    function initialize(address _verificationLogger, address _userRegistry, address _trustScore) public initializer {
         __AccessControl_init();
         __ReentrancyGuard_init();
         __UUPSUpgradeable_init();
@@ -143,49 +114,24 @@ contract GuardianManager is
         trustScore = ITrustScore(_trustScore);
     }
 
-    function _authorizeUpgrade(
-        address newImplementation
-    ) internal override onlyRole(UPGRADER_ROLE) {}
+    function _authorizeUpgrade(address newImplementation) internal override onlyRole(UPGRADER_ROLE) {}
 
-    function setupGuardianSet(
-        address[] memory guardians,
-        string[] memory relationships,
-        uint256 threshold
-    ) external nonReentrant {
+    function setupGuardianSet(address[] memory guardians, string[] memory relationships, uint256 threshold)
+        external
+        nonReentrant
+    {
         require(userRegistry.isRegistered(msg.sender), "User not registered");
-        require(
-            !guardianSets[msg.sender].isSetup,
-            "Guardian set already setup"
-        );
-        require(
-            guardians.length > 0 && guardians.length <= MAX_GUARDIANS,
-            "Invalid guardian count"
-        );
-        require(
-            guardians.length == relationships.length,
-            "Arrays length mismatch"
-        );
-        require(
-            threshold > 0 && threshold <= guardians.length,
-            "Invalid threshold"
-        );
+        require(!guardianSets[msg.sender].isSetup, "Guardian set already setup");
+        require(guardians.length > 0 && guardians.length <= MAX_GUARDIANS, "Invalid guardian count");
+        require(guardians.length == relationships.length, "Arrays length mismatch");
+        require(threshold > 0 && threshold <= guardians.length, "Invalid threshold");
 
         GuardianSet storage guardianSet = guardianSets[msg.sender];
 
         for (uint256 i = 0; i < guardians.length; i++) {
-            require(
-                guardians[i] != address(0) && guardians[i] != msg.sender,
-                "Invalid guardian address"
-            );
-            require(
-                !guardianSet.guardians[guardians[i]].isActive,
-                "Duplicate guardian"
-            );
-            require(
-                trustScore.getTrustScore(guardians[i]) >=
-                    MIN_GUARDIAN_TRUST_SCORE,
-                "Guardian trust score too low"
-            );
+            require(guardians[i] != address(0) && guardians[i] != msg.sender, "Invalid guardian address");
+            require(!guardianSet.guardians[guardians[i]].isActive, "Duplicate guardian");
+            require(trustScore.getTrustScore(guardians[i]) >= MIN_GUARDIAN_TRUST_SCORE, "Guardian trust score too low");
 
             guardianSet.guardians[guardians[i]] = Guardian({
                 guardianAddress: guardians[i],
@@ -205,79 +151,44 @@ contract GuardianManager is
         guardianSet.isSetup = true;
 
         verificationLogger.logEvent(
-            "GUARDIAN_SET_SETUP",
-            msg.sender,
-            keccak256(abi.encodePacked(guardians.length, threshold))
+            "GUARDIAN_SET_SETUP", msg.sender, keccak256(abi.encodePacked(guardians.length, threshold))
         );
     }
 
-    function proposeGuardianChange(
-        address guardian,
-        string memory relationship,
-        bool isAddition,
-        string memory reason
-    ) external nonReentrant returns (bytes32) {
+    function proposeGuardianChange(address guardian, string memory relationship, bool isAddition, string memory reason)
+        external
+        nonReentrant
+        returns (bytes32)
+    {
         require(guardianSets[msg.sender].isSetup, "Guardian set not setup");
 
         GuardianSet storage guardianSet = guardianSets[msg.sender];
 
         if (isAddition) {
-            require(
-                guardianSet.guardianList.length < guardianSet.maxGuardians,
-                "Max guardians reached"
-            );
-            require(
-                guardian != address(0) && guardian != msg.sender,
-                "Invalid guardian address"
-            );
-            require(
-                !guardianSet.guardians[guardian].isActive,
-                "Guardian already exists"
-            );
-            require(
-                trustScore.getTrustScore(guardian) >= MIN_GUARDIAN_TRUST_SCORE,
-                "Guardian trust score too low"
-            );
+            require(guardianSet.guardianList.length < guardianSet.maxGuardians, "Max guardians reached");
+            require(guardian != address(0) && guardian != msg.sender, "Invalid guardian address");
+            require(!guardianSet.guardians[guardian].isActive, "Guardian already exists");
+            require(trustScore.getTrustScore(guardian) >= MIN_GUARDIAN_TRUST_SCORE, "Guardian trust score too low");
         } else {
-            require(
-                guardianSet.guardians[guardian].isActive,
-                "Guardian not found"
-            );
-            require(
-                guardianSet.guardianList.length > 1,
-                "Cannot remove last guardian"
-            );
+            require(guardianSet.guardians[guardian].isActive, "Guardian not found");
+            require(guardianSet.guardianList.length > 1, "Cannot remove last guardian");
         }
 
         changeCounter++;
-        bytes32 changeId = keccak256(
-            abi.encodePacked(
-                msg.sender,
-                guardian,
-                changeCounter,
-                block.timestamp
-            )
-        );
+        bytes32 changeId = keccak256(abi.encodePacked(msg.sender, guardian, changeCounter, block.timestamp));
 
         guardianChanges[changeId] = GuardianChange({
             user: msg.sender,
             guardian: guardian,
             isAddition: isAddition,
             proposedAt: block.timestamp,
-            executionTime: block.timestamp +
-                (
-                    isAddition
-                        ? guardianSet.additionDelay
-                        : guardianSet.removalDelay
-                ),
+            executionTime: block.timestamp + (isAddition ? guardianSet.additionDelay : guardianSet.removalDelay),
             isExecuted: false,
             reason: reason
         });
 
         verificationLogger.logEvent(
-            isAddition
-                ? "GUARDIAN_ADDITION_PROPOSED"
-                : "GUARDIAN_REMOVAL_PROPOSED",
+            isAddition ? "GUARDIAN_ADDITION_PROPOSED" : "GUARDIAN_REMOVAL_PROPOSED",
             msg.sender,
             keccak256(abi.encodePacked(guardian, reason))
         );
@@ -305,11 +216,7 @@ contract GuardianManager is
             });
 
             guardianSet.guardianList.push(change.guardian);
-            emit GuardianAdded(
-                change.user,
-                change.guardian,
-                "Added via proposal"
-            );
+            emit GuardianAdded(change.user, change.guardian, "Added via proposal");
         } else {
             guardianSet.guardians[change.guardian].isActive = false;
             _removeFromGuardianList(change.user, change.guardian);
@@ -319,34 +226,23 @@ contract GuardianManager is
         change.isExecuted = true;
 
         verificationLogger.logEvent(
-            "GUARDIAN_CHANGE_EXECUTED",
-            change.user,
-            keccak256(abi.encodePacked(changeId, change.guardian))
+            "GUARDIAN_CHANGE_EXECUTED", change.user, keccak256(abi.encodePacked(changeId, change.guardian))
         );
 
         emit GuardianChangeExecuted(changeId);
     }
 
-    function proposeRecovery(
-        address user,
-        address newWallet,
-        bytes32 recoveryData,
-        string memory reason
-    ) external nonReentrant returns (bytes32) {
+    function proposeRecovery(address user, address newWallet, bytes32 recoveryData, string memory reason)
+        external
+        nonReentrant
+        returns (bytes32)
+    {
         require(guardianSets[user].isSetup, "Guardian set not setup for user");
-        require(
-            guardianSets[user].guardians[msg.sender].isActive,
-            "Not a valid guardian"
-        );
-        require(
-            newWallet != address(0) && newWallet != user,
-            "Invalid new wallet"
-        );
+        require(guardianSets[user].guardians[msg.sender].isActive, "Not a valid guardian");
+        require(newWallet != address(0) && newWallet != user, "Invalid new wallet");
 
         recoveryCounter++;
-        bytes32 recoveryId = keccak256(
-            abi.encodePacked(user, newWallet, recoveryCounter, block.timestamp)
-        );
+        bytes32 recoveryId = keccak256(abi.encodePacked(user, newWallet, recoveryCounter, block.timestamp));
 
         RecoveryProposal storage proposal = recoveryProposals[recoveryId];
         proposal.user = user;
@@ -361,9 +257,7 @@ contract GuardianManager is
         proposal.votedGuardians.push(msg.sender);
 
         verificationLogger.logEvent(
-            "RECOVERY_PROPOSED",
-            user,
-            keccak256(abi.encodePacked(recoveryId, newWallet, reason))
+            "RECOVERY_PROPOSED", user, keccak256(abi.encodePacked(recoveryId, newWallet, reason))
         );
 
         emit RecoveryProposed(recoveryId, user, newWallet);
@@ -375,23 +269,15 @@ contract GuardianManager is
     function voteForRecovery(bytes32 recoveryId) external nonReentrant {
         RecoveryProposal storage proposal = recoveryProposals[recoveryId];
         require(proposal.user != address(0), "Invalid recovery ID");
-        require(
-            !proposal.isExecuted && !proposal.isCancelled,
-            "Recovery not active"
-        );
-        require(
-            guardianSets[proposal.user].guardians[msg.sender].isActive,
-            "Not a valid guardian"
-        );
+        require(!proposal.isExecuted && !proposal.isCancelled, "Recovery not active");
+        require(guardianSets[proposal.user].guardians[msg.sender].isActive, "Not a valid guardian");
         require(!proposal.hasVoted[msg.sender], "Already voted");
 
         proposal.hasVoted[msg.sender] = true;
         proposal.votedGuardians.push(msg.sender);
 
         verificationLogger.logEvent(
-            "RECOVERY_VOTED",
-            proposal.user,
-            keccak256(abi.encodePacked(recoveryId, msg.sender))
+            "RECOVERY_VOTED", proposal.user, keccak256(abi.encodePacked(recoveryId, msg.sender))
         );
 
         emit RecoveryVoted(recoveryId, msg.sender);
@@ -400,20 +286,11 @@ contract GuardianManager is
     function executeRecovery(bytes32 recoveryId) external nonReentrant {
         RecoveryProposal storage proposal = recoveryProposals[recoveryId];
         require(proposal.user != address(0), "Invalid recovery ID");
-        require(
-            !proposal.isExecuted && !proposal.isCancelled,
-            "Recovery not active"
-        );
-        require(
-            block.timestamp >= proposal.executionTime,
-            "Execution delay not met"
-        );
+        require(!proposal.isExecuted && !proposal.isCancelled, "Recovery not active");
+        require(block.timestamp >= proposal.executionTime, "Execution delay not met");
 
         GuardianSet storage guardianSet = guardianSets[proposal.user];
-        require(
-            proposal.votedGuardians.length >= guardianSet.threshold,
-            "Insufficient guardian votes"
-        );
+        require(proposal.votedGuardians.length >= guardianSet.threshold, "Insufficient guardian votes");
 
         proposal.isExecuted = true;
 
@@ -422,9 +299,7 @@ contract GuardianManager is
         trustScore.unlockScore(proposal.user);
 
         verificationLogger.logEvent(
-            "RECOVERY_EXECUTED",
-            proposal.user,
-            keccak256(abi.encodePacked(recoveryId, proposal.newWallet))
+            "RECOVERY_EXECUTED", proposal.user, keccak256(abi.encodePacked(recoveryId, proposal.newWallet))
         );
 
         emit RecoveryExecuted(recoveryId, proposal.user);
@@ -433,22 +308,13 @@ contract GuardianManager is
     function cancelRecovery(bytes32 recoveryId, string memory reason) external {
         RecoveryProposal storage proposal = recoveryProposals[recoveryId];
         require(proposal.user != address(0), "Invalid recovery ID");
-        require(
-            !proposal.isExecuted && !proposal.isCancelled,
-            "Recovery not active"
-        );
-        require(
-            msg.sender == proposal.user ||
-                hasRole(GUARDIAN_ADMIN_ROLE, msg.sender),
-            "Not authorized to cancel"
-        );
+        require(!proposal.isExecuted && !proposal.isCancelled, "Recovery not active");
+        require(msg.sender == proposal.user || hasRole(GUARDIAN_ADMIN_ROLE, msg.sender), "Not authorized to cancel");
 
         proposal.isCancelled = true;
 
         verificationLogger.logEvent(
-            "RECOVERY_CANCELLED",
-            proposal.user,
-            keccak256(abi.encodePacked(recoveryId, reason))
+            "RECOVERY_CANCELLED", proposal.user, keccak256(abi.encodePacked(recoveryId, reason))
         );
 
         emit RecoveryCancelled(recoveryId, reason);
@@ -456,63 +322,35 @@ contract GuardianManager is
 
     function updateThreshold(uint256 newThreshold) external nonReentrant {
         require(guardianSets[msg.sender].isSetup, "Guardian set not setup");
-        require(
-            newThreshold > 0 &&
-                newThreshold <= guardianSets[msg.sender].guardianList.length,
-            "Invalid threshold"
-        );
+        require(newThreshold > 0 && newThreshold <= guardianSets[msg.sender].guardianList.length, "Invalid threshold");
 
         guardianSets[msg.sender].threshold = newThreshold;
 
-        verificationLogger.logEvent(
-            "GUARDIAN_THRESHOLD_UPDATED",
-            msg.sender,
-            bytes32(newThreshold)
-        );
+        verificationLogger.logEvent("GUARDIAN_THRESHOLD_UPDATED", msg.sender, bytes32(newThreshold));
 
         emit ThresholdUpdated(msg.sender, newThreshold);
     }
 
-    function getGuardianSet(
-        address user
-    )
+    function getGuardianSet(address user)
         external
         view
         returns (address[] memory guardians, uint256 threshold, bool isSetup)
     {
         GuardianSet storage guardianSet = guardianSets[user];
-        return (
-            guardianSet.guardianList,
-            guardianSet.threshold,
-            guardianSet.isSetup
-        );
+        return (guardianSet.guardianList, guardianSet.threshold, guardianSet.isSetup);
     }
 
-    function getGuardianInfo(
-        address user,
-        address guardian
-    )
+    function getGuardianInfo(address user, address guardian)
         external
         view
-        returns (
-            string memory relationship,
-            uint256 addedAt,
-            bool isActive,
-            uint256 currentTrustScore
-        )
+        returns (string memory relationship, uint256 addedAt, bool isActive, uint256 currentTrustScore)
     {
         Guardian memory guardianInfo = guardianSets[user].guardians[guardian];
-        return (
-            guardianInfo.relationship,
-            guardianInfo.addedAt,
-            guardianInfo.isActive,
-            trustScore.getTrustScore(guardian)
-        );
+        return
+            (guardianInfo.relationship, guardianInfo.addedAt, guardianInfo.isActive, trustScore.getTrustScore(guardian));
     }
 
-    function getRecoveryInfo(
-        bytes32 recoveryId
-    )
+    function getRecoveryInfo(bytes32 recoveryId)
         external
         view
         returns (
@@ -539,26 +377,15 @@ contract GuardianManager is
         );
     }
 
-    function isGuardian(
-        address user,
-        address guardian
-    ) external view returns (bool) {
+    function isGuardian(address user, address guardian) external view returns (bool) {
         return guardianSets[user].guardians[guardian].isActive;
     }
 
-    function canExecuteRecovery(
-        bytes32 recoveryId
-    ) external view returns (bool) {
+    function canExecuteRecovery(bytes32 recoveryId) external view returns (bool) {
         RecoveryProposal storage proposal = recoveryProposals[recoveryId];
-        if (
-            proposal.user == address(0) ||
-            proposal.isExecuted ||
-            proposal.isCancelled
-        ) return false;
+        if (proposal.user == address(0) || proposal.isExecuted || proposal.isCancelled) return false;
         if (block.timestamp < proposal.executionTime) return false;
-        return
-            proposal.votedGuardians.length >=
-            guardianSets[proposal.user].threshold;
+        return proposal.votedGuardians.length >= guardianSets[proposal.user].threshold;
     }
 
     function _removeFromGuardianList(address user, address guardian) private {
