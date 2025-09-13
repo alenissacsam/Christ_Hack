@@ -5,6 +5,7 @@ import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol"
 import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 
 interface IVerificationLogger {
     function logEvent(
@@ -22,11 +23,13 @@ contract UserIdentityRegistry is
     Initializable,
     AccessControlUpgradeable,
     ReentrancyGuardUpgradeable,
-    UUPSUpgradeable
+    UUPSUpgradeable,
+    PausableUpgradeable
 {
     bytes32 public constant REGISTRY_MANAGER_ROLE =
         keccak256("REGISTRY_MANAGER_ROLE");
     bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
+    bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
 
     struct Identity {
         bytes32 identityCommitment;
@@ -73,10 +76,12 @@ contract UserIdentityRegistry is
         __AccessControl_init();
         __ReentrancyGuard_init();
         __UUPSUpgradeable_init();
+        __Pausable_init();
 
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(REGISTRY_MANAGER_ROLE, msg.sender);
         _grantRole(UPGRADER_ROLE, msg.sender);
+        _grantRole(PAUSER_ROLE, msg.sender);
 
         verificationLogger = IVerificationLogger(_verificationLogger);
         trustScore = ITrustScore(_trustScore);
@@ -89,7 +94,7 @@ contract UserIdentityRegistry is
     function registerIdentity(
         address user,
         bytes32 identityCommitment
-    ) external onlyRole(REGISTRY_MANAGER_ROLE) nonReentrant {
+    ) external onlyRole(REGISTRY_MANAGER_ROLE) nonReentrant whenNotPaused {
         require(user != address(0), "Invalid user address");
         require(identityCommitment != bytes32(0), "Invalid commitment");
         require(!identities[user].isActive, "Identity already registered");
@@ -245,7 +250,35 @@ contract UserIdentityRegistry is
 
     function isIdentityLocked(address user) external view returns (bool) {
         if (!identities[user].isLocked) return false;
-        if (block.timestamp > identities[user].lockExpiry) return false;
+
+        // Check if lock has expired
+        if (block.timestamp > identities[user].lockExpiry) {
+            return false;
+        }
+
+        return true;
+    }
+
+    function isIdentityLockedWithUpdate(address user) external returns (bool) {
+        if (!identities[user].isLocked) return false;
+
+        // Auto-unlock expired locks
+        if (block.timestamp > identities[user].lockExpiry) {
+            identities[user].isLocked = false;
+            identities[user].lockExpiry = 0;
+
+            if (address(verificationLogger) != address(0)) {
+                verificationLogger.logEvent(
+                    "IDENTITY_AUTO_UNLOCKED",
+                    user,
+                    bytes32(0)
+                );
+            }
+            emit IdentityUnlocked(user);
+
+            return false;
+        }
+
         return true;
     }
 
@@ -286,6 +319,29 @@ contract UserIdentityRegistry is
     function isCommitmentActive(
         bytes32 commitment
     ) external view returns (bool) {
-        return nullifiers[commitment] && !inactiveCommitments[commitment];
+        return
+            nullifiers[commitment] &&
+            !inactiveCommitments[commitment] &&
+            commitmentToAddress[commitment] != address(0);
+    }
+
+    function isCommitmentValid(
+        bytes32 commitment,
+        address expectedUser
+    ) external view returns (bool) {
+        return
+            nullifiers[commitment] &&
+            !inactiveCommitments[commitment] &&
+            commitmentToAddress[commitment] == expectedUser &&
+            identities[expectedUser].isActive &&
+            !identities[expectedUser].isLocked;
+    }
+
+    function pause() external onlyRole(PAUSER_ROLE) {
+        _pause();
+    }
+
+    function unpause() external onlyRole(PAUSER_ROLE) {
+        _unpause();
     }
 }

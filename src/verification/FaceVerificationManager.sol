@@ -7,24 +7,38 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 interface IVerificationLogger {
-    function logEvent(string memory eventType, address user, bytes32 dataHash) external;
+    function logEvent(
+        string memory eventType,
+        address user,
+        bytes32 dataHash
+    ) external;
 }
 
 interface IUserIdentityRegistry {
-    function updateVerificationStatus(address user, string memory verificationType, bool status) external;
+    function updateVerificationStatus(
+        address user,
+        string memory verificationType,
+        bool status
+    ) external;
+
     function isRegistered(address user) external view returns (bool);
+
     function isIdentityLocked(address user) external view returns (bool);
 }
 
 interface ITrustScore {
-    function updateScore(address user, int256 delta, string memory reason) external;
+    function updateScore(
+        address user,
+        int256 delta,
+        string memory reason
+    ) external;
 }
 
-contract FaceVerificationManager is 
+contract FaceVerificationManager is
     Initializable,
-    AccessControlUpgradeable, 
+    AccessControlUpgradeable,
     ReentrancyGuardUpgradeable,
-    UUPSUpgradeable 
+    UUPSUpgradeable
 {
     bytes32 public constant VERIFIER_ROLE = keccak256("VERIFIER_ROLE");
     bytes32 public constant ORACLE_ROLE = keccak256("ORACLE_ROLE");
@@ -45,7 +59,7 @@ contract FaceVerificationManager is
     mapping(address => FaceVerification) public faceVerifications;
     mapping(bytes32 => bool) public usedFaceHashes;
     mapping(address => uint256) public failedAttempts;
-    
+
     IVerificationLogger public verificationLogger;
     IUserIdentityRegistry public userRegistry;
     ITrustScore public trustScore;
@@ -55,8 +69,15 @@ contract FaceVerificationManager is
     uint256 public constant RETRY_COOLDOWN = 1 hours;
     uint256 public constant MAX_FAILED_ATTEMPTS = 5;
 
-    event FaceVerificationRequested(address indexed user, bytes32 faceHashCommitment);
-    event FaceVerificationCompleted(address indexed user, bool success, string provider);
+    event FaceVerificationRequested(
+        address indexed user,
+        bytes32 faceHashCommitment
+    );
+    event FaceVerificationCompleted(
+        address indexed user,
+        bool success,
+        string provider
+    );
     event FaceVerificationRevoked(address indexed user, string reason);
     event RetryAttempt(address indexed user, uint256 attemptNumber);
 
@@ -84,19 +105,30 @@ contract FaceVerificationManager is
         trustScore = ITrustScore(_trustScore);
     }
 
-    function _authorizeUpgrade(address newImplementation) internal override onlyRole(UPGRADER_ROLE) {}
+    function _authorizeUpgrade(
+        address newImplementation
+    ) internal override onlyRole(UPGRADER_ROLE) {}
 
     function requestFaceVerification(
         bytes32 faceHashCommitment,
         bytes32 livenessProof
     ) external nonReentrant {
         require(userRegistry.isRegistered(msg.sender), "User not registered");
-        require(!userRegistry.isIdentityLocked(msg.sender), "Identity is locked");
-        require(!faceVerifications[msg.sender].isActive, "Face verification already active");
+        require(
+            !userRegistry.isIdentityLocked(msg.sender),
+            "Identity is locked"
+        );
+        require(
+            !faceVerifications[msg.sender].isActive,
+            "Face verification already active"
+        );
         require(!usedFaceHashes[faceHashCommitment], "Face hash already used");
         require(faceHashCommitment != bytes32(0), "Invalid face hash");
         require(livenessProof != bytes32(0), "Invalid liveness proof");
-        require(failedAttempts[msg.sender] < MAX_FAILED_ATTEMPTS, "Too many failed attempts");
+        require(
+            failedAttempts[msg.sender] < MAX_FAILED_ATTEMPTS,
+            "Too many failed attempts"
+        );
 
         // Check retry cooldown
         FaceVerification storage existing = faceVerifications[msg.sender];
@@ -128,7 +160,7 @@ contract FaceVerificationManager is
         );
 
         emit FaceVerificationRequested(msg.sender, faceHashCommitment);
-        
+
         if (existing.retryCount > 0) {
             emit RetryAttempt(msg.sender, existing.retryCount + 1);
         }
@@ -140,25 +172,51 @@ contract FaceVerificationManager is
         string memory verificationProvider,
         bytes memory oracleSignature
     ) public onlyRole(ORACLE_ROLE) {
-        require(faceVerifications[user].isActive, "No active face verification");
-        require(bytes(verificationProvider).length > 0, "Provider required");
-        require(_verifyOracleSignature(user, success, oracleSignature), "Invalid oracle signature");
+        require(user != address(0), "Invalid user address");
+        require(
+            faceVerifications[user].isActive,
+            "No active face verification"
+        );
+        require(
+            bytes(verificationProvider).length > 0 &&
+                bytes(verificationProvider).length <= 50,
+            "Invalid provider length"
+        );
+        require(
+            _verifyOracleSignature(
+                user,
+                success,
+                verificationProvider,
+                oracleSignature
+            ),
+            "Invalid oracle signature"
+        );
 
-        faceVerifications[user].isVerified = success;
-        faceVerifications[user].verificationProvider = verificationProvider;
+        FaceVerification storage verification = faceVerifications[user];
+        verification.isVerified = success;
+        verification.verificationProvider = verificationProvider;
+        verification.isActive = false; // Mark as inactive after completion
 
         if (success) {
             userRegistry.updateVerificationStatus(user, "face", true);
-            trustScore.updateScore(user, int256(FACE_VERIFICATION_SCORE), "Face verification completed");
-            
+            trustScore.updateScore(
+                user,
+                int256(FACE_VERIFICATION_SCORE),
+                "Face verification completed"
+            );
+
             // Reset failed attempts on success
             failedAttempts[user] = 0;
         } else {
-            faceVerifications[user].isActive = false;
             failedAttempts[user]++;
-            
+
             // Apply penalty for failed verification
             trustScore.updateScore(user, -5, "Face verification failed");
+
+            // Prevent spam by increasing cooldown for repeated failures
+            if (failedAttempts[user] >= 3) {
+                verification.lastRetry = block.timestamp + (RETRY_COOLDOWN * 2);
+            }
         }
 
         verificationLogger.logEvent(
@@ -180,7 +238,11 @@ contract FaceVerificationManager is
         faceVerifications[user].isActive = false;
 
         userRegistry.updateVerificationStatus(user, "face", false);
-        trustScore.updateScore(user, -int256(FACE_VERIFICATION_SCORE), "Face verification revoked");
+        trustScore.updateScore(
+            user,
+            -int256(FACE_VERIFICATION_SCORE),
+            "Face verification revoked"
+        );
 
         verificationLogger.logEvent(
             "FACE_VERIFICATION_REVOKED",
@@ -191,9 +253,11 @@ contract FaceVerificationManager is
         emit FaceVerificationRevoked(user, reason);
     }
 
-    function resetFailedAttempts(address user) external onlyRole(VERIFIER_ROLE) {
+    function resetFailedAttempts(
+        address user
+    ) external onlyRole(VERIFIER_ROLE) {
         failedAttempts[user] = 0;
-        
+
         verificationLogger.logEvent(
             "FACE_VERIFICATION_ATTEMPTS_RESET",
             user,
@@ -208,31 +272,44 @@ contract FaceVerificationManager is
         bytes[] memory signatures
     ) external onlyRole(ORACLE_ROLE) {
         require(
-            users.length == successes.length && 
-            successes.length == providers.length && 
-            providers.length == signatures.length,
+            users.length == successes.length &&
+                successes.length == providers.length &&
+                providers.length == signatures.length,
             "Array lengths must match"
         );
 
         for (uint256 i = 0; i < users.length; i++) {
             if (faceVerifications[users[i]].isActive) {
-                completeFaceVerification(users[i], successes[i], providers[i], signatures[i]);
+                completeFaceVerification(
+                    users[i],
+                    successes[i],
+                    providers[i],
+                    signatures[i]
+                );
             }
         }
     }
 
     function isFaceVerified(address user) external view returns (bool) {
-        return faceVerifications[user].isVerified && faceVerifications[user].isActive;
+        return
+            faceVerifications[user].isVerified &&
+            faceVerifications[user].isActive;
     }
 
-    function getFaceVerificationInfo(address user) external view returns (
-        bytes32 faceHashCommitment,
-        uint256 timestamp,
-        bool isVerified,
-        string memory verificationProvider,
-        uint256 retryCount,
-        uint256 failedAttemptCount
-    ) {
+    function getFaceVerificationInfo(
+        address user
+    )
+        external
+        view
+        returns (
+            bytes32 faceHashCommitment,
+            uint256 timestamp,
+            bool isVerified,
+            string memory verificationProvider,
+            uint256 retryCount,
+            uint256 failedAttemptCount
+        )
+    {
         FaceVerification memory verification = faceVerifications[user];
         return (
             verification.faceHashCommitment,
@@ -246,22 +323,27 @@ contract FaceVerificationManager is
 
     function canRetryVerification(address user) external view returns (bool) {
         if (failedAttempts[user] >= MAX_FAILED_ATTEMPTS) return false;
-        if (faceVerifications[user].retryCount >= MAX_RETRY_ATTEMPTS) return false;
-        
+        if (faceVerifications[user].retryCount >= MAX_RETRY_ATTEMPTS)
+            return false;
+
         FaceVerification memory verification = faceVerifications[user];
         if (verification.retryCount > 0) {
             return block.timestamp >= verification.lastRetry + RETRY_COOLDOWN;
         }
-        
+
         return true;
     }
 
-    function getVerificationStats() external view returns (
-        uint256 totalRequests,
-        uint256 successfulVerifications,
-        uint256 failedVerifications,
-        uint256 activeRequests
-    ) {
+    function getVerificationStats()
+        external
+        pure
+        returns (
+            uint256 totalRequests,
+            uint256 successfulVerifications,
+            uint256 failedVerifications,
+            uint256 activeRequests
+        )
+    {
         // This would require additional state tracking in production
         // For now, return placeholder values
         return (0, 0, 0, 0);
@@ -269,11 +351,21 @@ contract FaceVerificationManager is
 
     function _verifyOracleSignature(
         address user,
-        bool success,
+        bool /* success */,
+        string memory provider,
         bytes memory signature
     ) private pure returns (bool) {
-        // Simplified signature verification - in production use proper ECDSA verification
-        // This should verify that the oracle signed the (user, success) data
-        return signature.length > 0 && user != address(0);
+        // Enhanced signature verification - in production use proper ECDSA verification
+        // This should verify that the oracle signed the (user, success, provider) data
+        require(signature.length >= 65, "Invalid signature length"); // Standard ECDSA signature length
+        require(user != address(0), "Invalid user address");
+        require(bytes(provider).length > 0, "Provider required");
+
+        // In production, this would:
+        // 1. Recover the signer address from the signature
+        // 2. Verify the signer has ORACLE_ROLE
+        // 3. Verify the signature covers all relevant data
+
+        return true; // Simplified for now - implement actual verification
     }
 }

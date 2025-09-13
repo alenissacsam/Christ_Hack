@@ -6,11 +6,20 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 interface IVerificationLogger {
-    function logEvent(string memory eventType, address user, bytes32 dataHash) external;
+    function logEvent(
+        string memory eventType,
+        address user,
+        bytes32 dataHash
+    ) external;
 }
 
-contract ContractRegistry is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
-    bytes32 public constant REGISTRY_ADMIN_ROLE = keccak256("REGISTRY_ADMIN_ROLE");
+contract ContractRegistry is
+    Initializable,
+    AccessControlUpgradeable,
+    UUPSUpgradeable
+{
+    bytes32 public constant REGISTRY_ADMIN_ROLE =
+        keccak256("REGISTRY_ADMIN_ROLE");
     bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
 
     struct ContractInfo {
@@ -28,9 +37,20 @@ contract ContractRegistry is Initializable, AccessControlUpgradeable, UUPSUpgrad
 
     IVerificationLogger public verificationLogger;
 
-    event ContractRegistered(string indexed name, address indexed contractAddress, string version);
-    event ContractUpdated(string indexed name, address indexed oldAddress, address indexed newAddress);
-    event ContractDeactivated(string indexed name, address indexed contractAddress);
+    event ContractRegistered(
+        string indexed name,
+        address indexed contractAddress,
+        string version
+    );
+    event ContractUpdated(
+        string indexed name,
+        address indexed oldAddress,
+        address indexed newAddress
+    );
+    event ContractDeactivated(
+        string indexed name,
+        address indexed contractAddress
+    );
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -48,7 +68,9 @@ contract ContractRegistry is Initializable, AccessControlUpgradeable, UUPSUpgrad
         verificationLogger = IVerificationLogger(_verificationLogger);
     }
 
-    function _authorizeUpgrade(address newImplementation) internal override onlyRole(UPGRADER_ROLE) {}
+    function _authorizeUpgrade(
+        address newImplementation
+    ) internal override onlyRole(UPGRADER_ROLE) {}
 
     function registerContract(
         string memory name,
@@ -56,20 +78,31 @@ contract ContractRegistry is Initializable, AccessControlUpgradeable, UUPSUpgrad
         string memory version
     ) public onlyRole(REGISTRY_ADMIN_ROLE) {
         require(contractAddress != address(0), "Invalid contract address");
-        require(bytes(name).length > 0, "Name cannot be empty");
-        require(bytes(version).length > 0, "Version cannot be empty");
+        require(contractAddress.code.length > 0, "Address is not a contract");
+        require(
+            bytes(name).length > 0 && bytes(name).length <= 50,
+            "Invalid name length"
+        );
+        require(
+            bytes(version).length > 0 && bytes(version).length <= 20,
+            "Invalid version length"
+        );
 
         bool isNewContract = contracts[name].contractAddress == address(0);
-        
+
         if (isNewContract) {
             contractNames.push(name);
         } else {
-            // Remove old address mapping
-            delete addressToName[contracts[name].contractAddress];
+            // Remove old address mapping only if it exists
+            address oldAddress = contracts[name].contractAddress;
+            if (oldAddress != address(0)) {
+                delete addressToName[oldAddress];
+            }
         }
 
         bytes32 codeHash = _getCodeHash(contractAddress);
-        
+        require(codeHash != bytes32(0), "Invalid contract code");
+
         contracts[name] = ContractInfo({
             contractAddress: contractAddress,
             name: name,
@@ -81,11 +114,13 @@ contract ContractRegistry is Initializable, AccessControlUpgradeable, UUPSUpgrad
 
         addressToName[contractAddress] = name;
 
-        verificationLogger.logEvent(
-            isNewContract ? "CONTRACT_REGISTERED" : "CONTRACT_UPDATED",
-            msg.sender,
-            keccak256(abi.encodePacked(name, contractAddress, version))
-        );
+        if (address(verificationLogger) != address(0)) {
+            verificationLogger.logEvent(
+                isNewContract ? "CONTRACT_REGISTERED" : "CONTRACT_UPDATED",
+                msg.sender,
+                keccak256(abi.encodePacked(name, contractAddress, version))
+            );
+        }
 
         if (isNewContract) {
             emit ContractRegistered(name, contractAddress, version);
@@ -99,21 +134,24 @@ contract ContractRegistry is Initializable, AccessControlUpgradeable, UUPSUpgrad
         address newAddress,
         string memory newVersion
     ) external onlyRole(REGISTRY_ADMIN_ROLE) {
-        require(contracts[name].contractAddress != address(0), "Contract not found");
+        require(
+            contracts[name].contractAddress != address(0),
+            "Contract not found"
+        );
         require(newAddress != address(0), "Invalid new address");
         require(contracts[name].contractAddress != newAddress, "Same address");
 
         address oldAddress = contracts[name].contractAddress;
-        
+
         // Remove old address mapping
         delete addressToName[oldAddress];
-        
+
         // Update contract info
         contracts[name].contractAddress = newAddress;
         contracts[name].version = newVersion;
         contracts[name].deployedAt = block.timestamp;
         contracts[name].codeHash = _getCodeHash(newAddress);
-        
+
         addressToName[newAddress] = name;
 
         verificationLogger.logEvent(
@@ -125,8 +163,13 @@ contract ContractRegistry is Initializable, AccessControlUpgradeable, UUPSUpgrad
         emit ContractUpdated(name, oldAddress, newAddress);
     }
 
-    function deactivateContract(string memory name) external onlyRole(REGISTRY_ADMIN_ROLE) {
-        require(contracts[name].contractAddress != address(0), "Contract not found");
+    function deactivateContract(
+        string memory name
+    ) external onlyRole(REGISTRY_ADMIN_ROLE) {
+        require(
+            contracts[name].contractAddress != address(0),
+            "Contract not found"
+        );
         require(contracts[name].isActive, "Contract already inactive");
 
         contracts[name].isActive = false;
@@ -140,8 +183,13 @@ contract ContractRegistry is Initializable, AccessControlUpgradeable, UUPSUpgrad
         emit ContractDeactivated(name, contracts[name].contractAddress);
     }
 
-    function reactivateContract(string memory name) external onlyRole(REGISTRY_ADMIN_ROLE) {
-        require(contracts[name].contractAddress != address(0), "Contract not found");
+    function reactivateContract(
+        string memory name
+    ) external onlyRole(REGISTRY_ADMIN_ROLE) {
+        require(
+            contracts[name].contractAddress != address(0),
+            "Contract not found"
+        );
         require(!contracts[name].isActive, "Contract already active");
 
         contracts[name].isActive = true;
@@ -153,16 +201,22 @@ contract ContractRegistry is Initializable, AccessControlUpgradeable, UUPSUpgrad
         );
     }
 
-    function getContractAddress(string memory name) external view returns (address) {
+    function getContractAddress(
+        string memory name
+    ) external view returns (address) {
         require(contracts[name].isActive, "Contract inactive or not found");
         return contracts[name].contractAddress;
     }
 
-    function getContractInfo(string memory name) external view returns (ContractInfo memory) {
+    function getContractInfo(
+        string memory name
+    ) external view returns (ContractInfo memory) {
         return contracts[name];
     }
 
-    function getContractName(address contractAddress) external view returns (string memory) {
+    function getContractName(
+        address contractAddress
+    ) external view returns (string memory) {
         return addressToName[contractAddress];
     }
 
@@ -172,49 +226,60 @@ contract ContractRegistry is Initializable, AccessControlUpgradeable, UUPSUpgrad
 
     function getActiveContracts() external view returns (string[] memory) {
         uint256 activeCount = 0;
-        
+
         // Count active contracts
         for (uint256 i = 0; i < contractNames.length; i++) {
             if (contracts[contractNames[i]].isActive) {
                 activeCount++;
             }
         }
-        
+
         // Collect active contracts
         string[] memory activeContracts = new string[](activeCount);
         uint256 index = 0;
-        
+
         for (uint256 i = 0; i < contractNames.length; i++) {
             if (contracts[contractNames[i]].isActive) {
                 activeContracts[index] = contractNames[i];
                 index++;
             }
         }
-        
+
         return activeContracts;
     }
 
-    function isContractRegistered(string memory name) external view returns (bool) {
+    function isContractRegistered(
+        string memory name
+    ) external view returns (bool) {
         return contracts[name].contractAddress != address(0);
     }
 
     function isContractActive(string memory name) external view returns (bool) {
-        return contracts[name].contractAddress != address(0) && contracts[name].isActive;
+        return
+            contracts[name].contractAddress != address(0) &&
+            contracts[name].isActive;
     }
 
-    function verifyContract(string memory name, address expectedAddress) external view returns (bool) {
+    function verifyContract(
+        string memory name,
+        address expectedAddress
+    ) external view returns (bool) {
         ContractInfo memory info = contracts[name];
         return info.contractAddress == expectedAddress && info.isActive;
     }
 
-    function getContractCodeHash(string memory name) external view returns (bytes32) {
+    function getContractCodeHash(
+        string memory name
+    ) external view returns (bytes32) {
         return contracts[name].codeHash;
     }
 
-    function verifyCodeIntegrity(string memory name) external view returns (bool) {
+    function verifyCodeIntegrity(
+        string memory name
+    ) external view returns (bool) {
         ContractInfo memory info = contracts[name];
         if (info.contractAddress == address(0)) return false;
-        
+
         bytes32 currentCodeHash = _getCodeHash(info.contractAddress);
         return currentCodeHash == info.codeHash;
     }
@@ -224,35 +289,45 @@ contract ContractRegistry is Initializable, AccessControlUpgradeable, UUPSUpgrad
         address[] memory addresses,
         string[] memory versions
     ) external onlyRole(REGISTRY_ADMIN_ROLE) {
+        uint256 length = names.length;
         require(
-            names.length == addresses.length && addresses.length == versions.length,
+            length == addresses.length && addresses.length == versions.length,
             "Array lengths must match"
         );
+        require(length > 0 && length <= 20, "Invalid batch size"); // Limit batch size for gas efficiency
 
-        for (uint256 i = 0; i < names.length; i++) {
-            registerContract(names[i], addresses[i], versions[i]);
+        unchecked {
+            for (uint256 i = 0; i < length; ++i) {
+                registerContract(names[i], addresses[i], versions[i]);
+            }
         }
     }
 
-    function getContractStats() external view returns (
-        uint256 totalContracts,
-        uint256 activeContracts,
-        uint256 inactiveContracts
-    ) {
+    function getContractStats()
+        external
+        view
+        returns (
+            uint256 totalContracts,
+            uint256 activeContracts,
+            uint256 inactiveContracts
+        )
+    {
         totalContracts = contractNames.length;
         uint256 active = 0;
-        
+
         for (uint256 i = 0; i < contractNames.length; i++) {
             if (contracts[contractNames[i]].isActive) {
                 active++;
             }
         }
-        
+
         activeContracts = active;
         inactiveContracts = totalContracts - active;
     }
 
-    function _getCodeHash(address contractAddress) private view returns (bytes32) {
+    function _getCodeHash(
+        address contractAddress
+    ) private view returns (bytes32) {
         bytes32 codeHash;
         assembly {
             codeHash := extcodehash(contractAddress)

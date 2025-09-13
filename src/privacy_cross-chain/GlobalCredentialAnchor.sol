@@ -7,14 +7,18 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 interface IVerificationLogger {
-    function logEvent(string memory eventType, address user, bytes32 dataHash) external;
+    function logEvent(
+        string memory eventType,
+        address user,
+        bytes32 dataHash
+    ) external;
 }
 
-contract GlobalCredentialAnchor is 
+contract GlobalCredentialAnchor is
     Initializable,
-    AccessControlUpgradeable, 
+    AccessControlUpgradeable,
     ReentrancyGuardUpgradeable,
-    UUPSUpgradeable 
+    UUPSUpgradeable
 {
     bytes32 public constant ANCHOR_ADMIN_ROLE = keccak256("ANCHOR_ADMIN_ROLE");
     bytes32 public constant VERIFIER_ROLE = keccak256("VERIFIER_ROLE");
@@ -31,7 +35,7 @@ contract GlobalCredentialAnchor is
         uint256 batchIndex;
         bool isActive;
         bytes32 previousRoot;
-        string metadataURI;
+        string metadataUri;
     }
 
     struct CredentialProof {
@@ -54,10 +58,10 @@ contract GlobalCredentialAnchor is
         uint256 processedAt;
         bool isProcessed;
         bytes32 batchRoot;
-        string metadataURI;
+        string metadataUri;
     }
 
-    struct ZKVerificationKey {
+    struct ZkVerificationKey {
         bytes32 keyHash;
         string keyType; // "groth16", "plonk", "stark"
         bytes verificationKey;
@@ -70,7 +74,7 @@ contract GlobalCredentialAnchor is
     mapping(bytes32 => CredentialProof) public credentialProofs;
     mapping(bytes32 => bool) public nullifiers; // For double-spending prevention
     mapping(uint256 => BatchSubmission) public batchSubmissions;
-    mapping(string => ZKVerificationKey) public verificationKeys;
+    mapping(string => ZkVerificationKey) public verificationKeys;
     mapping(address => uint256[]) public userCredentials; // holder => credential indices
     mapping(bytes32 => uint256) public credentialToRootIndex;
 
@@ -78,18 +82,34 @@ contract GlobalCredentialAnchor is
     uint256 public batchCounter;
     uint256 public totalCredentials;
     uint256 public revokedCredentials;
-    
+
     IVerificationLogger public verificationLogger;
 
     // Merkle tree storage - flattened tree structure
     mapping(uint256 => mapping(uint256 => bytes32)) public merkleTree; // level => index => hash
-    
-    event MerkleRootUpdated(uint256 indexed rootIndex, bytes32 indexed newRoot, uint256 credentialCount);
-    event CredentialAnchored(bytes32 indexed credentialHash, address indexed holder, uint256 rootIndex);
+
+    event MerkleRootUpdated(
+        uint256 indexed rootIndex,
+        bytes32 indexed newRoot,
+        uint256 credentialCount
+    );
+    event CredentialAnchored(
+        bytes32 indexed credentialHash,
+        address indexed holder,
+        uint256 rootIndex
+    );
     event CredentialRevoked(bytes32 indexed credentialHash, string reason);
-    event BatchSubmitted(uint256 indexed batchId, uint256 credentialCount, bytes32 batchRoot);
-    event ProofVerified(bytes32 indexed credentialHash, address indexed verifier, bool isValid);
-    event ZKKeyRegistered(string indexed keyType, bytes32 keyHash);
+    event BatchSubmitted(
+        uint256 indexed batchId,
+        uint256 credentialCount,
+        bytes32 batchRoot
+    );
+    event ProofVerified(
+        bytes32 indexed credentialHash,
+        address indexed verifier,
+        bool isValid
+    );
+    event ZkKeyRegistered(string indexed keyType, bytes32 keyHash);
     event NullifierUsed(bytes32 indexed nullifierHash, address indexed user);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -98,6 +118,11 @@ contract GlobalCredentialAnchor is
     }
 
     function initialize(address _verificationLogger) public initializer {
+        require(
+            _verificationLogger != address(0),
+            "Invalid verification logger"
+        );
+
         __AccessControl_init();
         __ReentrancyGuard_init();
         __UUPSUpgradeable_init();
@@ -113,18 +138,22 @@ contract GlobalCredentialAnchor is
         _initializeGenesis();
     }
 
-    function _authorizeUpgrade(address newImplementation) internal override onlyRole(UPGRADER_ROLE) {}
+    function _authorizeUpgrade(
+        address newImplementation
+    ) internal override onlyRole(UPGRADER_ROLE) {}
 
     function submitCredentialBatch(
         bytes32[] memory credentialHashes,
         address[] memory holders,
         string[] memory credentialTypes,
-        string memory metadataURI
+        string memory metadataUri
     ) public onlyRole(VERIFIER_ROLE) nonReentrant returns (uint256) {
+        require(credentialHashes.length > 0, "Empty batch");
         require(credentialHashes.length <= BATCH_SIZE, "Batch too large");
+        require(bytes(metadataUri).length > 0, "Invalid metadata URI");
         require(
-            credentialHashes.length == holders.length && 
-            holders.length == credentialTypes.length,
+            credentialHashes.length == holders.length &&
+                holders.length == credentialTypes.length,
             "Array length mismatch"
         );
 
@@ -140,11 +169,17 @@ contract GlobalCredentialAnchor is
             processedAt: 0,
             isProcessed: false,
             batchRoot: bytes32(0),
-            metadataURI: metadataURI
+            metadataUri: metadataUri
         });
 
         // Process each credential in the batch
         for (uint256 i = 0; i < credentialHashes.length; i++) {
+            require(holders[i] != address(0), "Invalid holder address");
+            require(
+                bytes(credentialTypes[i]).length > 0,
+                "Empty credential type"
+            );
+
             _anchorCredential(
                 credentialHashes[i],
                 holders[i],
@@ -165,7 +200,9 @@ contract GlobalCredentialAnchor is
         verificationLogger.logEvent(
             "CREDENTIAL_BATCH_SUBMITTED",
             msg.sender,
-            keccak256(abi.encodePacked(batchId, credentialHashes.length, batchRoot))
+            keccak256(
+                abi.encodePacked(batchId, credentialHashes.length, batchRoot)
+            )
         );
 
         emit BatchSubmitted(batchId, credentialHashes.length, batchRoot);
@@ -176,17 +213,17 @@ contract GlobalCredentialAnchor is
         bytes32 credentialHash,
         address holder,
         string memory credentialType,
-        string memory metadataURI
+        string memory metadataUri
     ) external onlyRole(VERIFIER_ROLE) {
         bytes32[] memory hashes = new bytes32[](1);
         address[] memory holders = new address[](1);
         string[] memory types = new string[](1);
-        
+
         hashes[0] = credentialHash;
         holders[0] = holder;
         types[0] = credentialType;
 
-        submitCredentialBatch(hashes, holders, types, metadataURI);
+        submitCredentialBatch(hashes, holders, types, metadataUri);
     }
 
     function verifyCredentialProof(
@@ -196,21 +233,29 @@ contract GlobalCredentialAnchor is
         uint256 credentialIndex
     ) external view returns (bool) {
         require(merkleRoots[rootIndex].isActive, "Root not active");
-        
-        bytes32 computedRoot = _computeMerkleRoot(credentialHash, merkleProof, credentialIndex);
+
+        bytes32 computedRoot = _computeMerkleRoot(
+            credentialHash,
+            merkleProof,
+            credentialIndex
+        );
         return computedRoot == merkleRoots[rootIndex].root;
     }
 
-    function verifyZKProof(
+    function verifyZkProof(
         string memory keyType,
         bytes memory proof,
         bytes memory publicInputs
     ) external onlyRole(VERIFIER_ROLE) returns (bool) {
-        ZKVerificationKey memory zkKey = verificationKeys[keyType];
+        ZkVerificationKey memory zkKey = verificationKeys[keyType];
         require(zkKey.isActive, "Verification key not active");
 
         // Simplified ZK proof verification - in production use actual ZK libraries
-        bool isValid = _verifyProofInternal(zkKey.verificationKey, proof, publicInputs);
+        bool isValid = _verifyProofInternal(
+            zkKey.verificationKey,
+            proof,
+            publicInputs
+        );
 
         verificationLogger.logEvent(
             "ZK_PROOF_VERIFIED",
@@ -226,7 +271,10 @@ contract GlobalCredentialAnchor is
         string memory reason
     ) external onlyRole(ANCHOR_ADMIN_ROLE) {
         CredentialProof storage credential = credentialProofs[credentialHash];
-        require(credential.credentialHash != bytes32(0), "Credential not found");
+        require(
+            credential.credentialHash != bytes32(0),
+            "Credential not found"
+        );
         require(!credential.isRevoked, "Already revoked");
 
         credential.isRevoked = true;
@@ -241,13 +289,13 @@ contract GlobalCredentialAnchor is
         emit CredentialRevoked(credentialHash, reason);
     }
 
-    function registerZKVerificationKey(
+    function registerZkVerificationKey(
         string memory keyType,
         bytes memory verificationKey
     ) external onlyRole(ANCHOR_ADMIN_ROLE) {
         bytes32 keyHash = keccak256(verificationKey);
-        
-        verificationKeys[keyType] = ZKVerificationKey({
+
+        verificationKeys[keyType] = ZkVerificationKey({
             keyHash: keyHash,
             keyType: keyType,
             verificationKey: verificationKey,
@@ -262,12 +310,12 @@ contract GlobalCredentialAnchor is
             keccak256(abi.encodePacked(keyType, keyHash))
         );
 
-        emit ZKKeyRegistered(keyType, keyHash);
+        emit ZkKeyRegistered(keyType, keyHash);
     }
 
     function useNullifier(bytes32 nullifierHash) external returns (bool) {
         require(!nullifiers[nullifierHash], "Nullifier already used");
-        
+
         nullifiers[nullifierHash] = true;
 
         verificationLogger.logEvent(
@@ -284,7 +332,10 @@ contract GlobalCredentialAnchor is
         bytes32 credentialHash
     ) external view returns (bytes32[] memory, uint256, uint256) {
         CredentialProof memory credential = credentialProofs[credentialHash];
-        require(credential.credentialHash != bytes32(0), "Credential not found");
+        require(
+            credential.credentialHash != bytes32(0),
+            "Credential not found"
+        );
 
         bytes32[] memory proof = new bytes32[](TREE_DEPTH);
         uint256 index = credential.credentialIndex;
@@ -293,12 +344,12 @@ contract GlobalCredentialAnchor is
         // Generate Merkle proof by traversing up the tree
         for (uint256 level = 0; level < TREE_DEPTH; level++) {
             uint256 siblingIndex = index ^ 1; // XOR with 1 to get sibling
-            
+
             if (merkleTree[level][siblingIndex] != bytes32(0)) {
                 proof[proofLength] = merkleTree[level][siblingIndex];
                 proofLength++;
             }
-            
+
             index = index / 2;
             if (index == 0) break;
         }
@@ -312,13 +363,19 @@ contract GlobalCredentialAnchor is
         return (finalProof, credential.rootIndex, credential.credentialIndex);
     }
 
-    function getCredentialProof(bytes32 credentialHash) external view returns (
-        address holder,
-        uint256 rootIndex,
-        uint256 credentialIndex,
-        bool isRevoked,
-        string memory credentialType
-    ) {
+    function getCredentialProof(
+        bytes32 credentialHash
+    )
+        external
+        view
+        returns (
+            address holder,
+            uint256 rootIndex,
+            uint256 credentialIndex,
+            bool isRevoked,
+            string memory credentialType
+        )
+    {
         CredentialProof memory credential = credentialProofs[credentialHash];
         return (
             credential.holder,
@@ -329,35 +386,53 @@ contract GlobalCredentialAnchor is
         );
     }
 
-    function getUserCredentials(address user) external view returns (uint256[] memory) {
+    function getUserCredentials(
+        address user
+    ) external view returns (uint256[] memory) {
         return userCredentials[user];
     }
 
-    function getCurrentRoot() external view returns (bytes32, uint256, uint256) {
+    function getCurrentRoot()
+        external
+        view
+        returns (bytes32, uint256, uint256)
+    {
         MerkleRoot memory root = merkleRoots[currentRootIndex];
         return (root.root, root.timestamp, root.credentialCount);
     }
 
-    function getRootHistory(uint256 fromIndex, uint256 toIndex) external view returns (MerkleRoot[] memory) {
-        require(fromIndex <= toIndex && toIndex <= currentRootIndex, "Invalid range");
-        
+    function getRootHistory(
+        uint256 fromIndex,
+        uint256 toIndex
+    ) external view returns (MerkleRoot[] memory) {
+        require(
+            fromIndex <= toIndex && toIndex <= currentRootIndex,
+            "Invalid range"
+        );
+
         uint256 length = toIndex - fromIndex + 1;
         MerkleRoot[] memory roots = new MerkleRoot[](length);
-        
+
         for (uint256 i = 0; i < length; i++) {
             roots[i] = merkleRoots[fromIndex + i];
         }
-        
+
         return roots;
     }
 
-    function getBatchSubmission(uint256 batchId) external view returns (
-        bytes32[] memory credentialHashes,
-        address submitter,
-        uint256 submittedAt,
-        bool isProcessed,
-        bytes32 batchRoot
-    ) {
+    function getBatchSubmission(
+        uint256 batchId
+    )
+        external
+        view
+        returns (
+            bytes32[] memory credentialHashes,
+            address submitter,
+            uint256 submittedAt,
+            bool isProcessed,
+            bytes32 batchRoot
+        )
+    {
         BatchSubmission memory batch = batchSubmissions[batchId];
         return (
             batch.credentialHashes,
@@ -368,13 +443,17 @@ contract GlobalCredentialAnchor is
         );
     }
 
-    function getGlobalStats() external view returns (
-        uint256 totalCredentialsCount,
-        uint256 revokedCredentialsCount,
-        uint256 currentRootIndexValue,
-        uint256 totalBatches,
-        uint256 activeRoots
-    ) {
+    function getGlobalStats()
+        external
+        view
+        returns (
+            uint256 totalCredentialsCount,
+            uint256 revokedCredentialsCount,
+            uint256 currentRootIndexValue,
+            uint256 totalBatches,
+            uint256 activeRoots
+        )
+    {
         return (
             totalCredentials,
             revokedCredentials,
@@ -384,24 +463,32 @@ contract GlobalCredentialAnchor is
         );
     }
 
-    function isNullifierUsed(bytes32 nullifierHash) external view returns (bool) {
+    function isNullifierUsed(
+        bytes32 nullifierHash
+    ) external view returns (bool) {
         return nullifiers[nullifierHash];
     }
 
-    function isCredentialValid(bytes32 credentialHash) external view returns (bool) {
+    function isCredentialValid(
+        bytes32 credentialHash
+    ) external view returns (bool) {
         CredentialProof memory credential = credentialProofs[credentialHash];
-        return credential.credentialHash != bytes32(0) && 
-               !credential.isRevoked &&
-               merkleRoots[credential.rootIndex].isActive;
+        return
+            credential.credentialHash != bytes32(0) &&
+            !credential.isRevoked &&
+            merkleRoots[credential.rootIndex].isActive;
     }
 
     function _anchorCredential(
         bytes32 credentialHash,
         address holder,
         string memory credentialType,
-        uint256 batchId
+        uint256 /* batchId */
     ) private {
-        require(credentialProofs[credentialHash].credentialHash == bytes32(0), "Credential already anchored");
+        require(
+            credentialProofs[credentialHash].credentialHash == bytes32(0),
+            "Credential already anchored"
+        );
 
         uint256 credentialIndex = totalCredentials;
         totalCredentials++;
@@ -415,7 +502,9 @@ contract GlobalCredentialAnchor is
             isRevoked: false,
             timestamp: block.timestamp,
             credentialType: credentialType,
-            nullifierHash: keccak256(abi.encodePacked(credentialHash, holder, block.timestamp))
+            nullifierHash: keccak256(
+                abi.encodePacked(credentialHash, holder, block.timestamp)
+            )
         });
 
         userCredentials[holder].push(credentialIndex);
@@ -427,11 +516,13 @@ contract GlobalCredentialAnchor is
         emit CredentialAnchored(credentialHash, holder, currentRootIndex);
     }
 
-    function _updateGlobalRoot(uint256 newCredentialCount) private {
+    function _updateGlobalRoot(uint256 /* newCredentialCount */) private {
         currentRootIndex++;
-        
+
         bytes32 newRoot = _calculateTreeRoot();
-        bytes32 previousRoot = currentRootIndex > 0 ? merkleRoots[currentRootIndex - 1].root : bytes32(0);
+        bytes32 previousRoot = currentRootIndex > 0
+            ? merkleRoots[currentRootIndex - 1].root
+            : bytes32(0);
 
         merkleRoots[currentRootIndex] = MerkleRoot({
             root: newRoot,
@@ -441,7 +532,7 @@ contract GlobalCredentialAnchor is
             batchIndex: batchCounter,
             isActive: true,
             previousRoot: previousRoot,
-            metadataURI: ""
+            metadataUri: ""
         });
 
         // Deactivate old root
@@ -452,7 +543,9 @@ contract GlobalCredentialAnchor is
         verificationLogger.logEvent(
             "MERKLE_ROOT_UPDATED",
             msg.sender,
-            keccak256(abi.encodePacked(currentRootIndex, newRoot, totalCredentials))
+            keccak256(
+                abi.encodePacked(currentRootIndex, newRoot, totalCredentials)
+            )
         );
 
         emit MerkleRootUpdated(currentRootIndex, newRoot, totalCredentials);
@@ -463,18 +556,19 @@ contract GlobalCredentialAnchor is
 
         // Build tree bottom-up
         uint256 levelSize = totalCredentials;
-        
+
         for (uint256 level = 1; level < TREE_DEPTH && levelSize > 1; level++) {
             uint256 nextLevelSize = (levelSize + 1) / 2;
-            
+
             for (uint256 i = 0; i < nextLevelSize; i++) {
                 bytes32 left = merkleTree[level - 1][i * 2];
-                bytes32 right = (i * 2 + 1 < levelSize) ? 
-                    merkleTree[level - 1][i * 2 + 1] : bytes32(0);
-                
+                bytes32 right = (i * 2 + 1 < levelSize)
+                    ? merkleTree[level - 1][i * 2 + 1]
+                    : bytes32(0);
+
                 merkleTree[level][i] = _hashPair(left, right);
             }
-            
+
             levelSize = nextLevelSize;
         }
 
@@ -484,30 +578,33 @@ contract GlobalCredentialAnchor is
                 return merkleTree[level][0];
             }
         }
-        
+
         return merkleTree[0][0]; // Single leaf case
     }
 
-    function _calculateBatchRoot(bytes32[] memory credentialHashes) private pure returns (bytes32) {
+    function _calculateBatchRoot(
+        bytes32[] memory credentialHashes
+    ) private pure returns (bytes32) {
         if (credentialHashes.length == 0) return bytes32(0);
         if (credentialHashes.length == 1) return credentialHashes[0];
 
         bytes32[] memory currentLevel = credentialHashes;
-        
+
         while (currentLevel.length > 1) {
             uint256 nextLevelLength = (currentLevel.length + 1) / 2;
             bytes32[] memory nextLevel = new bytes32[](nextLevelLength);
-            
+
             for (uint256 i = 0; i < nextLevelLength; i++) {
                 bytes32 left = currentLevel[i * 2];
-                bytes32 right = (i * 2 + 1 < currentLevel.length) ? 
-                    currentLevel[i * 2 + 1] : bytes32(0);
+                bytes32 right = (i * 2 + 1 < currentLevel.length)
+                    ? currentLevel[i * 2 + 1]
+                    : bytes32(0);
                 nextLevel[i] = _hashPair(left, right);
             }
-            
+
             currentLevel = nextLevel;
         }
-        
+
         return currentLevel[0];
     }
 
@@ -517,24 +614,27 @@ contract GlobalCredentialAnchor is
         uint256 index
     ) private pure returns (bytes32) {
         bytes32 computedHash = leaf;
-        
+
         for (uint256 i = 0; i < proof.length; i++) {
             bytes32 proofElement = proof[i];
-            
+
             if (index % 2 == 0) {
                 computedHash = _hashPair(computedHash, proofElement);
             } else {
                 computedHash = _hashPair(proofElement, computedHash);
             }
-            
+
             index = index / 2;
         }
-        
+
         return computedHash;
     }
 
     function _hashPair(bytes32 a, bytes32 b) private pure returns (bytes32) {
-        return a < b ? keccak256(abi.encodePacked(a, b)) : keccak256(abi.encodePacked(b, a));
+        return
+            a < b
+                ? keccak256(abi.encodePacked(a, b))
+                : keccak256(abi.encodePacked(b, a));
     }
 
     function _verifyProofInternal(
@@ -546,9 +646,12 @@ contract GlobalCredentialAnchor is
         // - Circomlib for Groth16
         // - PLONK verification libraries
         // - StarkWare STARK verifiers
-        
+
         // For now, just check that all parameters are non-empty
-        return verificationKey.length > 0 && proof.length > 0 && publicInputs.length > 0;
+        return
+            verificationKey.length > 0 &&
+            proof.length > 0 &&
+            publicInputs.length > 0;
     }
 
     function _initializeGenesis() private {
@@ -560,7 +663,7 @@ contract GlobalCredentialAnchor is
             batchIndex: 0,
             isActive: true,
             previousRoot: bytes32(0),
-            metadataURI: "genesis"
+            metadataUri: "genesis"
         });
     }
 }

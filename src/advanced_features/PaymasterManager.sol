@@ -7,7 +7,11 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 interface IVerificationLogger {
-    function logEvent(string memory eventType, address user, bytes32 dataHash) external;
+    function logEvent(
+        string memory eventType,
+        address user,
+        bytes32 dataHash
+    ) external;
 }
 
 interface ITrustScore {
@@ -16,32 +20,50 @@ interface ITrustScore {
 
 interface IUserIdentityRegistry {
     function isRegistered(address user) external view returns (bool);
-    function getVerificationStatus(address user) external view returns (bool faceVerified, bool aadhaarVerified, bool incomeVerified, uint256 verificationLevel);
+
+    function getVerificationStatus(
+        address user
+    )
+        external
+        view
+        returns (
+            bool faceVerified,
+            bool aadhaarVerified,
+            bool incomeVerified,
+            uint256 verificationLevel
+        );
 }
 
 interface ISystemToken {
-    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+    function transferFrom(
+        address from,
+        address to,
+        uint256 amount
+    ) external returns (bool);
+
     function transfer(address to, uint256 amount) external returns (bool);
+
     function balanceOf(address account) external view returns (uint256);
 }
 
-contract PaymasterManager is 
+contract PaymasterManager is
     Initializable,
-    AccessControlUpgradeable, 
+    AccessControlUpgradeable,
     ReentrancyGuardUpgradeable,
-    UUPSUpgradeable 
+    UUPSUpgradeable
 {
-    bytes32 public constant PAYMASTER_ADMIN_ROLE = keccak256("PAYMASTER_ADMIN_ROLE");
+    bytes32 public constant PAYMASTER_ADMIN_ROLE =
+        keccak256("PAYMASTER_ADMIN_ROLE");
     bytes32 public constant SPONSOR_ROLE = keccak256("SPONSOR_ROLE");
     bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
 
     enum SponsorshipType {
-        TrustBased,      // Based on user trust score
-        Educational,     // For educational institutions
-        Promotional,     // Promotional gasless transactions
-        Community,       // Community-sponsored
-        Premium,         // Premium subscription
-        Emergency        // Emergency transactions
+        TrustBased, // Based on user trust score
+        Educational, // For educational institutions
+        Promotional, // Promotional gasless transactions
+        Community, // Community-sponsored
+        Premium, // Premium subscription
+        Emergency // Emergency transactions
     }
 
     enum PaymasterStatus {
@@ -54,13 +76,13 @@ contract PaymasterManager is
     struct SponsorshipPolicy {
         SponsorshipType sponsorType;
         uint256 minTrustScore;
-        uint256 dailyLimit;       // Per user per day
-        uint256 monthlyLimit;     // Per user per month
-        uint256 maxGasPrice;      // Maximum gas price to sponsor
-        uint256 maxGasLimit;      // Maximum gas limit to sponsor
+        uint256 dailyLimit; // Per user per day
+        uint256 monthlyLimit; // Per user per month
+        uint256 maxGasPrice; // Maximum gas price to sponsor
+        uint256 maxGasLimit; // Maximum gas limit to sponsor
         bool requiresVerification; // Requires identity verification
         uint256 verificationLevel; // Required verification level (0-3)
-        uint256 costPerTx;        // Cost per transaction in tokens
+        uint256 costPerTx; // Cost per transaction in tokens
         bool isActive;
         uint256 createdAt;
         uint256 updatedAt;
@@ -131,14 +153,42 @@ contract PaymasterManager is
     PaymasterStatus public paymasterStatus;
     uint256 public tokenToGasRate; // How many tokens equal 1 unit of gas
 
-    event TransactionSponsored(bytes32 indexed userOpHash, address indexed user, SponsorshipType sponsorType, uint256 gasCost);
-    event SponsorPoolCreated(address indexed sponsor, string poolName, uint256 initialFunds);
-    event SponsorPoolFunded(address indexed pool, uint256 amount, address funder);
-    event UserQuotaExceeded(address indexed user, SponsorshipType sponsorType, uint256 limit);
-    event PolicyUpdated(SponsorshipType indexed sponsorType, uint256 minTrustScore, uint256 dailyLimit);
+    event TransactionSponsored(
+        bytes32 indexed userOpHash,
+        address indexed user,
+        SponsorshipType sponsorType,
+        uint256 gasCost
+    );
+    event SponsorPoolCreated(
+        address indexed sponsor,
+        string poolName,
+        uint256 initialFunds
+    );
+    event SponsorPoolFunded(
+        address indexed pool,
+        uint256 amount,
+        address funder
+    );
+    event UserQuotaExceeded(
+        address indexed user,
+        SponsorshipType sponsorType,
+        uint256 limit
+    );
+    event PolicyUpdated(
+        SponsorshipType indexed sponsorType,
+        uint256 minTrustScore,
+        uint256 dailyLimit
+    );
     event PremiumUserAdded(address indexed user, uint256 expiresAt);
-    event CreditsPurchased(address indexed user, uint256 amount, uint256 tokensCost);
-    event PaymasterStatusChanged(PaymasterStatus oldStatus, PaymasterStatus newStatus);
+    event CreditsPurchased(
+        address indexed user,
+        uint256 amount,
+        uint256 tokensCost
+    );
+    event PaymasterStatusChanged(
+        PaymasterStatus oldStatus,
+        PaymasterStatus newStatus
+    );
     event EmergencyWithdrawal(address indexed admin, uint256 amount);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -152,6 +202,14 @@ contract PaymasterManager is
         address _userRegistry,
         address _systemToken
     ) public initializer {
+        require(
+            _verificationLogger != address(0),
+            "Invalid verification logger"
+        );
+        require(_trustScore != address(0), "Invalid trust score");
+        require(_userRegistry != address(0), "Invalid user registry");
+        require(_systemToken != address(0), "Invalid system token");
+
         __AccessControl_init();
         __ReentrancyGuard_init();
         __UUPSUpgradeable_init();
@@ -175,7 +233,9 @@ contract PaymasterManager is
         _initializePolicies();
     }
 
-    function _authorizeUpgrade(address newImplementation) internal override onlyRole(UPGRADER_ROLE) {}
+    function _authorizeUpgrade(
+        address newImplementation
+    ) internal override onlyRole(UPGRADER_ROLE) {}
 
     function sponsorTransaction(
         address user,
@@ -186,9 +246,15 @@ contract PaymasterManager is
         string memory transactionType,
         SponsorshipType sponsorType
     ) external onlyRole(SPONSOR_ROLE) nonReentrant returns (bool) {
-        require(paymasterStatus == PaymasterStatus.Active, "Paymaster not active");
         require(user != address(0), "Invalid user");
+        require(wallet != address(0), "Invalid wallet");
+        require(userOpHash != bytes32(0), "Invalid user op hash");
         require(gasUsed > 0 && gasPrice > 0, "Invalid gas parameters");
+        require(bytes(transactionType).length > 0, "Empty transaction type");
+        require(
+            paymasterStatus == PaymasterStatus.Active,
+            "Paymaster not active"
+        );
 
         SponsorshipPolicy memory policy = sponsorshipPolicies[sponsorType];
         require(policy.isActive, "Sponsorship type not active");
@@ -220,8 +286,10 @@ contract PaymasterManager is
 
         // Record the sponsorship
         sponsorshipCounter++;
-        bytes32 sponsorshipId = keccak256(abi.encodePacked(userOpHash, sponsorshipCounter));
-        
+        bytes32 sponsorshipId = keccak256(
+            abi.encodePacked(userOpHash, sponsorshipCounter)
+        );
+
         sponsoredTransactions[sponsorshipId] = TransactionSponsorship({
             user: user,
             wallet: wallet,
@@ -243,7 +311,9 @@ contract PaymasterManager is
         verificationLogger.logEvent(
             "TRANSACTION_SPONSORED",
             user,
-            keccak256(abi.encodePacked(userOpHash, uint256(sponsorType), totalCost))
+            keccak256(
+                abi.encodePacked(userOpHash, uint256(sponsorType), totalCost)
+            )
         );
 
         emit TransactionSponsored(userOpHash, user, sponsorType, totalCost);
@@ -256,12 +326,21 @@ contract PaymasterManager is
         SponsorshipType[] memory supportedTypes,
         uint256 expirationPeriod
     ) external payable nonReentrant returns (address) {
-        require(bytes(poolName).length > 0, "Pool name required");
+        require(bytes(poolName).length > 0, "Empty pool name");
+        require(initialFunding > 0, "Invalid initial funding");
         require(msg.value >= initialFunding, "Insufficient funding");
-        require(supportedTypes.length > 0, "Supported types required");
+        require(supportedTypes.length > 0, "No supported types");
 
-        address poolAddress = address(uint160(uint256(keccak256(abi.encodePacked(poolName, msg.sender, block.timestamp)))));
-        
+        address poolAddress = address(
+            uint160(
+                uint256(
+                    keccak256(
+                        abi.encodePacked(poolName, msg.sender, block.timestamp)
+                    )
+                )
+            )
+        );
+
         SponsorPool storage pool = sponsorPools[poolAddress];
         pool.sponsor = msg.sender;
         pool.poolName = poolName;
@@ -271,7 +350,9 @@ contract PaymasterManager is
         pool.supportedTypes = supportedTypes;
         pool.isActive = true;
         pool.createdAt = block.timestamp;
-        pool.expiresAt = expirationPeriod > 0 ? block.timestamp + expirationPeriod : 0;
+        pool.expiresAt = expirationPeriod > 0
+            ? block.timestamp + expirationPeriod
+            : 0;
 
         // Allocate funds evenly across supported types
         uint256 allocationPerType = initialFunding / supportedTypes.length;
@@ -291,12 +372,20 @@ contract PaymasterManager is
         return poolAddress;
     }
 
-    function fundSponsorPool(address poolAddress, uint256 amount) external payable {
+    function fundSponsorPool(
+        address poolAddress,
+        uint256 amount
+    ) external payable nonReentrant {
+        require(poolAddress != address(0), "Invalid pool address");
+        require(amount > 0, "Invalid amount");
         require(msg.value >= amount, "Insufficient payment");
-        
+
         SponsorPool storage pool = sponsorPools[poolAddress];
         require(pool.isActive, "Pool not active");
-        require(pool.sponsor == msg.sender || hasRole(SPONSOR_ROLE, msg.sender), "Not authorized");
+        require(
+            pool.sponsor == msg.sender || hasRole(SPONSOR_ROLE, msg.sender),
+            "Not authorized"
+        );
 
         pool.totalFunds += amount;
 
@@ -310,12 +399,20 @@ contract PaymasterManager is
     }
 
     function purchaseGasCredits(uint256 gasAmount) external nonReentrant {
-        uint256 tokenCost = gasAmount * tokenToGasRate;
-        require(systemToken.balanceOf(msg.sender) >= tokenCost, "Insufficient tokens");
+        require(gasAmount > 0, "Invalid gas amount");
         require(userRegistry.isRegistered(msg.sender), "User not registered");
 
-        require(systemToken.transferFrom(msg.sender, address(this), tokenCost), "Token transfer failed");
-        
+        uint256 tokenCost = gasAmount * tokenToGasRate;
+        require(
+            systemToken.balanceOf(msg.sender) >= tokenCost,
+            "Insufficient tokens"
+        );
+
+        require(
+            systemToken.transferFrom(msg.sender, address(this), tokenCost),
+            "Token transfer failed"
+        );
+
         userCreditBalance[msg.sender] += gasAmount;
 
         verificationLogger.logEvent(
@@ -327,12 +424,15 @@ contract PaymasterManager is
         emit CreditsPurchased(msg.sender, gasAmount, tokenCost);
     }
 
-    function addPremiumUser(address user, uint256 duration) external onlyRole(PAYMASTER_ADMIN_ROLE) {
+    function addPremiumUser(
+        address user,
+        uint256 duration
+    ) external onlyRole(PAYMASTER_ADMIN_ROLE) {
         require(user != address(0), "Invalid user");
-        
+
         uint256 expiresAt = block.timestamp + duration;
         premiumUsers[user] = true;
-        
+
         UserQuota storage quota = userQuotas[user][SponsorshipType.Premium];
         quota.isPremiumUser = true;
         quota.premiumExpiresAt = expiresAt;
@@ -356,7 +456,7 @@ contract PaymasterManager is
         uint256 verificationLevel
     ) external onlyRole(PAYMASTER_ADMIN_ROLE) {
         SponsorshipPolicy storage policy = sponsorshipPolicies[sponsorType];
-        
+
         policy.minTrustScore = minTrustScore;
         policy.dailyLimit = dailyLimit;
         policy.monthlyLimit = monthlyLimit;
@@ -368,7 +468,13 @@ contract PaymasterManager is
         verificationLogger.logEvent(
             "SPONSORSHIP_POLICY_UPDATED",
             msg.sender,
-            keccak256(abi.encodePacked(uint256(sponsorType), minTrustScore, dailyLimit))
+            keccak256(
+                abi.encodePacked(
+                    uint256(sponsorType),
+                    minTrustScore,
+                    dailyLimit
+                )
+            )
         );
 
         emit PolicyUpdated(sponsorType, minTrustScore, dailyLimit);
@@ -377,18 +483,21 @@ contract PaymasterManager is
     function pausePaymaster() external onlyRole(PAYMASTER_ADMIN_ROLE) {
         PaymasterStatus oldStatus = paymasterStatus;
         paymasterStatus = PaymasterStatus.Paused;
-        
+
         emit PaymasterStatusChanged(oldStatus, PaymasterStatus.Paused);
     }
 
     function resumePaymaster() external onlyRole(PAYMASTER_ADMIN_ROLE) {
         PaymasterStatus oldStatus = paymasterStatus;
         paymasterStatus = PaymasterStatus.Active;
-        
+
         emit PaymasterStatusChanged(oldStatus, PaymasterStatus.Active);
     }
 
-    function emergencyWithdraw(uint256 amount, address payable recipient) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function emergencyWithdraw(
+        uint256 amount,
+        address payable recipient
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(recipient != address(0), "Invalid recipient");
         require(address(this).balance >= amount, "Insufficient balance");
         require(amount <= emergencyGasReserve, "Exceeds emergency reserve");
@@ -405,16 +514,23 @@ contract PaymasterManager is
         emit EmergencyWithdrawal(msg.sender, amount);
     }
 
-    function getUserQuota(address user, SponsorshipType sponsorType) external view returns (
-        uint256 dailyUsed,
-        uint256 monthlyUsed,
-        uint256 dailyLimit,
-        uint256 monthlyLimit,
-        bool isPremiumUser
-    ) {
+    function getUserQuota(
+        address user,
+        SponsorshipType sponsorType
+    )
+        external
+        view
+        returns (
+            uint256 dailyUsed,
+            uint256 monthlyUsed,
+            uint256 dailyLimit,
+            uint256 monthlyLimit,
+            bool isPremiumUser
+        )
+    {
         UserQuota memory quota = userQuotas[user][sponsorType];
         SponsorshipPolicy memory policy = sponsorshipPolicies[sponsorType];
-        
+
         return (
             quota.dailyUsed,
             quota.monthlyUsed,
@@ -424,14 +540,20 @@ contract PaymasterManager is
         );
     }
 
-    function getSponsorPool(address poolAddress) external view returns (
-        address sponsor,
-        string memory poolName,
-        uint256 totalFunds,
-        uint256 usedFunds,
-        uint256 availableFunds,
-        bool isActive
-    ) {
+    function getSponsorPool(
+        address poolAddress
+    )
+        external
+        view
+        returns (
+            address sponsor,
+            string memory poolName,
+            uint256 totalFunds,
+            uint256 usedFunds,
+            uint256 availableFunds,
+            bool isActive
+        )
+    {
         SponsorPool storage pool = sponsorPools[poolAddress];
         return (
             pool.sponsor,
@@ -443,11 +565,15 @@ contract PaymasterManager is
         );
     }
 
-    function getUserSponsoredTransactions(address user) external view returns (bytes32[] memory) {
+    function getUserSponsoredTransactions(
+        address user
+    ) external view returns (bytes32[] memory) {
         return userSponsoredTxs[user];
     }
 
-    function getUserCreditBalance(address user) external view returns (uint256) {
+    function getUserCreditBalance(
+        address user
+    ) external view returns (uint256) {
         return userCreditBalance[user];
     }
 
@@ -471,30 +597,38 @@ contract PaymasterManager is
 
         // Check daily limit
         uint256 currentDay = block.timestamp / 1 days;
-        uint256 dailyUsed = (currentDay > quota.lastResetDay) ? 0 : quota.dailyUsed;
-        
+        uint256 dailyUsed = (currentDay > quota.lastResetDay)
+            ? 0
+            : quota.dailyUsed;
+
         if (dailyUsed + totalCost > policy.dailyLimit) {
             return (false, "Daily limit exceeded");
         }
 
         // Check if funding is available
-        if (_selectSponsorPool(sponsorType, totalCost) == address(0) && 
-            userCreditBalance[user] < totalCost) {
+        if (
+            _selectSponsorPool(sponsorType, totalCost) == address(0) &&
+            userCreditBalance[user] < totalCost
+        ) {
             return (false, "No funding available");
         }
 
         return (true, "");
     }
 
-    function getPaymasterStats() external view returns (
-        uint256 totalSponsoredTxs,
-        uint256 totalGasSponsored,
-        uint256 activeSponsorPools,
-        uint256 totalFundsAvailable,
-        PaymasterStatus status
-    ) {
+    function getPaymasterStats()
+        external
+        view
+        returns (
+            uint256 totalSponsoredTxs,
+            uint256 totalGasSponsored,
+            uint256 activeSponsorPools,
+            uint256 totalFundsAvailable,
+            PaymasterStatus status
+        )
+    {
         totalSponsoredTxs = allSponsoredTxs.length;
-        
+
         uint256 totalGas = 0;
         for (uint256 i = 0; i < allSponsoredTxs.length; i++) {
             totalGas += sponsoredTransactions[allSponsoredTxs[i]].totalCost;
@@ -510,7 +644,7 @@ contract PaymasterManager is
                 availableFunds += (pool.totalFunds - pool.usedFunds);
             }
         }
-        
+
         activeSponsorPools = activePools;
         totalFundsAvailable = availableFunds;
         status = paymasterStatus;
@@ -523,28 +657,32 @@ contract PaymasterManager is
         uint256 gasPrice
     ) private view returns (bool) {
         SponsorshipPolicy memory policy = sponsorshipPolicies[sponsorType];
-        
+
         // Check if user is registered
         if (!userRegistry.isRegistered(user)) return false;
-        
+
         // Check gas limits
-        if (gasPrice > policy.maxGasPrice || gasUsed > policy.maxGasLimit) return false;
-        
+        if (gasPrice > policy.maxGasPrice || gasUsed > policy.maxGasLimit)
+            return false;
+
         // Check trust score
         if (trustScore.getTrustScore(user) < policy.minTrustScore) return false;
-        
+
         // Check verification requirements
         if (policy.requiresVerification) {
-            (,,,uint256 userVerificationLevel) = userRegistry.getVerificationStatus(user);
+            (, , , uint256 userVerificationLevel) = userRegistry
+                .getVerificationStatus(user);
             if (userVerificationLevel < policy.verificationLevel) return false;
         }
-        
+
         // Check premium status for premium sponsorship
         if (sponsorType == SponsorshipType.Premium) {
             UserQuota memory quota = userQuotas[user][sponsorType];
-            if (!quota.isPremiumUser || block.timestamp > quota.premiumExpiresAt) return false;
+            if (
+                !quota.isPremiumUser || block.timestamp > quota.premiumExpiresAt
+            ) return false;
         }
-        
+
         return true;
     }
 
@@ -555,43 +693,47 @@ contract PaymasterManager is
     ) private returns (bool) {
         UserQuota storage quota = userQuotas[user][sponsorType];
         SponsorshipPolicy memory policy = sponsorshipPolicies[sponsorType];
-        
+
         uint256 currentDay = block.timestamp / 1 days;
         uint256 currentMonth = block.timestamp / 30 days;
-        
+
         // Reset daily quota if new day
         if (currentDay > quota.lastResetDay) {
             quota.dailyUsed = 0;
             quota.lastResetDay = currentDay;
         }
-        
+
         // Reset monthly quota if new month
         if (currentMonth > quota.lastResetMonth) {
             quota.monthlyUsed = 0;
             quota.lastResetMonth = currentMonth;
         }
-        
+
         // Check limits
         if (quota.dailyUsed + totalCost > policy.dailyLimit) return false;
         if (quota.monthlyUsed + totalCost > policy.monthlyLimit) return false;
-        
+
         // Update quotas
         quota.dailyUsed += totalCost;
         quota.monthlyUsed += totalCost;
         quota.totalTransactions++;
         quota.totalGasSponsored += totalCost;
-        
+
         return true;
     }
 
-    function _selectSponsorPool(SponsorshipType sponsorType, uint256 amount) private view returns (address) {
+    function _selectSponsorPool(
+        SponsorshipType sponsorType,
+        uint256 amount
+    ) private view returns (address) {
         for (uint256 i = 0; i < allSponsorPools.length; i++) {
             address poolAddr = allSponsorPools[i];
             SponsorPool storage pool = sponsorPools[poolAddr];
-            
+
             if (!pool.isActive) continue;
-            if (pool.expiresAt > 0 && block.timestamp > pool.expiresAt) continue;
-            
+            if (pool.expiresAt > 0 && block.timestamp > pool.expiresAt)
+                continue;
+
             // Check if pool supports this sponsorship type
             bool supportsType = false;
             for (uint256 j = 0; j < pool.supportedTypes.length; j++) {
@@ -600,12 +742,12 @@ contract PaymasterManager is
                     break;
                 }
             }
-            
+
             if (supportsType && pool.typeAllocations[sponsorType] >= amount) {
                 return poolAddr;
             }
         }
-        
+
         return address(0);
     }
 

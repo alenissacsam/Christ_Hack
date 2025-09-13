@@ -4,6 +4,7 @@ pragma solidity ^0.8.19;
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+
 contract VerificationLogger is
     Initializable,
     AccessControlUpgradeable,
@@ -64,6 +65,9 @@ contract VerificationLogger is
         address user,
         bytes32 dataHash
     ) external onlyRole(LOGGER_ROLE) {
+        require(bytes(eventType).length > 0, "Empty event type");
+        require(user != address(0), "Invalid user address");
+
         logCounter++;
 
         LogEntry memory newLog = LogEntry({
@@ -95,33 +99,42 @@ contract VerificationLogger is
                 users.length == dataHashes.length,
             "Array lengths must match"
         );
+        require(
+            eventTypes.length > 0 && eventTypes.length <= 50,
+            "Invalid batch size"
+        );
 
-        for (uint256 i = 0; i < eventTypes.length; i++) {
-            logCounter++;
+        unchecked {
+            for (uint256 i = 0; i < eventTypes.length; ++i) {
+                require(bytes(eventTypes[i]).length > 0, "Empty event type");
+                require(users[i] != address(0), "Invalid user address");
 
-            LogEntry memory newLog = LogEntry({
-                id: logCounter,
-                eventType: eventTypes[i],
-                user: users[i],
-                contractAddress: msg.sender,
-                dataHash: dataHashes[i],
-                timestamp: block.timestamp,
-                blockNumber: block.number,
-                isArchived: false
-            });
+                logCounter++;
 
-            logs[logCounter] = newLog;
-            userLogs[users[i]].push(logCounter);
-            eventTypeLogs[eventTypes[i]].push(logCounter);
-            contractLogs[msg.sender].push(logCounter);
+                LogEntry memory newLog = LogEntry({
+                    id: logCounter,
+                    eventType: eventTypes[i],
+                    user: users[i],
+                    contractAddress: msg.sender,
+                    dataHash: dataHashes[i],
+                    timestamp: block.timestamp,
+                    blockNumber: block.number,
+                    isArchived: false
+                });
 
-            emit EventLogged(
-                logCounter,
-                eventTypes[i],
-                users[i],
-                msg.sender,
-                dataHashes[i]
-            );
+                logs[logCounter] = newLog;
+                userLogs[users[i]].push(logCounter);
+                eventTypeLogs[eventTypes[i]].push(logCounter);
+                contractLogs[msg.sender].push(logCounter);
+
+                emit EventLogged(
+                    logCounter,
+                    eventTypes[i],
+                    users[i],
+                    msg.sender,
+                    dataHashes[i]
+                );
+            }
         }
     }
 

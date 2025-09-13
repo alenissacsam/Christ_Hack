@@ -7,39 +7,54 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 interface IVerificationLogger {
-    function logEvent(string memory eventType, address user, bytes32 dataHash) external;
+    function logEvent(
+        string memory eventType,
+        address user,
+        bytes32 dataHash
+    ) external;
 }
 
 interface IUserIdentityRegistry {
-    function updateVerificationStatus(address user, string memory verificationType, bool status) external;
+    function updateVerificationStatus(
+        address user,
+        string memory verificationType,
+        bool status
+    ) external;
+
     function isRegistered(address user) external view returns (bool);
+
     function isIdentityLocked(address user) external view returns (bool);
 }
 
 interface ITrustScore {
-    function updateScore(address user, int256 delta, string memory reason) external;
+    function updateScore(
+        address user,
+        int256 delta,
+        string memory reason
+    ) external;
 }
 
 interface IAadhaarVerificationManager {
     function isAadhaarVerified(address user) external view returns (bool);
 }
 
-contract IncomeVerificationManager is 
+contract IncomeVerificationManager is
     Initializable,
-    AccessControlUpgradeable, 
+    AccessControlUpgradeable,
     ReentrancyGuardUpgradeable,
-    UUPSUpgradeable 
+    UUPSUpgradeable
 {
     bytes32 public constant VERIFIER_ROLE = keccak256("VERIFIER_ROLE");
-    bytes32 public constant INCOME_ORACLE_ROLE = keccak256("INCOME_ORACLE_ROLE");
+    bytes32 public constant INCOME_ORACLE_ROLE =
+        keccak256("INCOME_ORACLE_ROLE");
     bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
 
     enum IncomeRange {
-        Below1Lakh,    // < 1,00,000
-        Lakh1to5,      // 1,00,000 - 5,00,000
-        Lakh5to10,     // 5,00,000 - 10,00,000
-        Lakh10to25,    // 10,00,000 - 25,00,000
-        Above25Lakh    // > 25,00,000
+        Below1Lakh, // < 1,00,000
+        Lakh1to5, // 1,00,000 - 5,00,000
+        Lakh5to10, // 5,00,000 - 10,00,000
+        Lakh10to25, // 10,00,000 - 25,00,000
+        Above25Lakh // > 25,00,000
     }
 
     struct IncomeVerification {
@@ -56,7 +71,7 @@ contract IncomeVerificationManager is
 
     mapping(address => IncomeVerification) public incomeVerifications;
     mapping(address => IncomeVerification[]) public incomeHistory;
-    
+
     IVerificationLogger public verificationLogger;
     IUserIdentityRegistry public userRegistry;
     ITrustScore public trustScore;
@@ -65,8 +80,15 @@ contract IncomeVerificationManager is
     uint256 public constant INCOME_VERIFICATION_SCORE = 25;
     uint256 public constant INCOME_VERIFICATION_VALIDITY = 365 days; // 1 year
 
-    event IncomeVerificationRequested(address indexed user, IncomeRange incomeRange);
-    event IncomeVerificationCompleted(address indexed user, bool success, string source);
+    event IncomeVerificationRequested(
+        address indexed user,
+        IncomeRange incomeRange
+    );
+    event IncomeVerificationCompleted(
+        address indexed user,
+        bool success,
+        string source
+    );
     event IncomeVerificationRevoked(address indexed user, string reason);
     event IncomeVerificationExpired(address indexed user);
     event IncomeVerificationRenewed(address indexed user, IncomeRange newRange);
@@ -94,10 +116,14 @@ contract IncomeVerificationManager is
         verificationLogger = IVerificationLogger(_verificationLogger);
         userRegistry = IUserIdentityRegistry(_userRegistry);
         trustScore = ITrustScore(_trustScore);
-        aadhaarVerificationManager = IAadhaarVerificationManager(_aadhaarVerificationManager);
+        aadhaarVerificationManager = IAadhaarVerificationManager(
+            _aadhaarVerificationManager
+        );
     }
 
-    function _authorizeUpgrade(address newImplementation) internal override onlyRole(UPGRADER_ROLE) {}
+    function _authorizeUpgrade(
+        address newImplementation
+    ) internal override onlyRole(UPGRADER_ROLE) {}
 
     function requestIncomeVerification(
         bytes32 incomeProofHash,
@@ -105,17 +131,32 @@ contract IncomeVerificationManager is
         string memory verificationSource
     ) external nonReentrant {
         require(userRegistry.isRegistered(msg.sender), "User not registered");
-        require(!userRegistry.isIdentityLocked(msg.sender), "Identity is locked");
-        require(aadhaarVerificationManager.isAadhaarVerified(msg.sender), "Aadhaar verification required");
-        require(!incomeVerifications[msg.sender].isActive, "Income verification already active");
+        require(
+            !userRegistry.isIdentityLocked(msg.sender),
+            "Identity is locked"
+        );
+        require(
+            aadhaarVerificationManager.isAadhaarVerified(msg.sender),
+            "Aadhaar verification required"
+        );
+        require(
+            !incomeVerifications[msg.sender].isActive,
+            "Income verification already active"
+        );
         require(incomeProofHash != bytes32(0), "Invalid income proof hash");
+        require(
+            bytes(verificationSource).length > 0,
+            "Empty verification source"
+        );
+        require(uint256(incomeRange) <= 4, "Invalid income range");
 
         bytes32 sourceHash = keccak256(bytes(verificationSource));
+
         require(
             sourceHash == keccak256("ITR") ||
-            sourceHash == keccak256("BankStatement") ||
-            sourceHash == keccak256("SalarySlip") ||
-            sourceHash == keccak256("GST"),
+                sourceHash == keccak256("BankStatement") ||
+                sourceHash == keccak256("SalarySlip") ||
+                sourceHash == keccak256("GST"),
             "Invalid verification source"
         );
 
@@ -145,17 +186,27 @@ contract IncomeVerificationManager is
         bool success,
         bytes memory oracleSignature
     ) public onlyRole(INCOME_ORACLE_ROLE) {
-        require(incomeVerifications[user].isActive, "No active income verification");
-        require(_verifyOracleSignature(user, success, oracleSignature), "Invalid oracle signature");
+        require(
+            incomeVerifications[user].isActive,
+            "No active income verification"
+        );
+        require(
+            _verifyOracleSignature(user, success, oracleSignature),
+            "Invalid oracle signature"
+        );
 
         incomeVerifications[user].isVerified = success;
 
         if (success) {
-            incomeVerifications[user].expiryDate = block.timestamp + INCOME_VERIFICATION_VALIDITY;
-            
+            incomeVerifications[user].expiryDate =
+                block.timestamp +
+                INCOME_VERIFICATION_VALIDITY;
+
             userRegistry.updateVerificationStatus(user, "income", true);
 
-            uint256 bonus = _calculateIncomeBonus(incomeVerifications[user].incomeRange);
+            uint256 bonus = _calculateIncomeBonus(
+                incomeVerifications[user].incomeRange
+            );
             trustScore.updateScore(
                 user,
                 int256(INCOME_VERIFICATION_SCORE + bonus),
@@ -170,12 +221,23 @@ contract IncomeVerificationManager is
         }
 
         verificationLogger.logEvent(
-            success ? "INCOME_VERIFICATION_SUCCESS" : "INCOME_VERIFICATION_FAILED",
+            success
+                ? "INCOME_VERIFICATION_SUCCESS"
+                : "INCOME_VERIFICATION_FAILED",
             user,
-            keccak256(abi.encodePacked(incomeVerifications[user].verificationSource, success))
+            keccak256(
+                abi.encodePacked(
+                    incomeVerifications[user].verificationSource,
+                    success
+                )
+            )
         );
 
-        emit IncomeVerificationCompleted(user, success, incomeVerifications[user].verificationSource);
+        emit IncomeVerificationCompleted(
+            user,
+            success,
+            incomeVerifications[user].verificationSource
+        );
     }
 
     function renewIncomeVerification(
@@ -183,16 +245,23 @@ contract IncomeVerificationManager is
         IncomeRange newIncomeRange,
         string memory verificationSource
     ) external nonReentrant {
-        require(incomeVerifications[msg.sender].isVerified, "No verified income to renew");
-        require(!_isIncomeVerificationExpired(msg.sender), "Current verification already expired");
+        require(
+            incomeVerifications[msg.sender].isVerified,
+            "No verified income to renew"
+        );
+        require(
+            !_isIncomeVerificationExpired(msg.sender),
+            "Current verification already expired"
+        );
         require(newIncomeProofHash != bytes32(0), "Invalid income proof hash");
 
         bytes32 sourceHash = keccak256(bytes(verificationSource));
+
         require(
             sourceHash == keccak256("ITR") ||
-            sourceHash == keccak256("BankStatement") ||
-            sourceHash == keccak256("SalarySlip") ||
-            sourceHash == keccak256("GST"),
+                sourceHash == keccak256("BankStatement") ||
+                sourceHash == keccak256("SalarySlip") ||
+                sourceHash == keccak256("GST"),
             "Invalid verification source"
         );
 
@@ -226,14 +295,18 @@ contract IncomeVerificationManager is
     ) external onlyRole(VERIFIER_ROLE) {
         require(incomeVerifications[user].isVerified, "Income not verified");
 
-        uint256 deductionAmount = INCOME_VERIFICATION_SCORE + 
+        uint256 deductionAmount = INCOME_VERIFICATION_SCORE +
             _calculateIncomeBonus(incomeVerifications[user].incomeRange);
 
         incomeVerifications[user].isVerified = false;
         incomeVerifications[user].isActive = false;
 
         userRegistry.updateVerificationStatus(user, "income", false);
-        trustScore.updateScore(user, -int256(deductionAmount), "Income verification revoked");
+        trustScore.updateScore(
+            user,
+            -int256(deductionAmount),
+            "Income verification revoked"
+        );
 
         verificationLogger.logEvent(
             "INCOME_VERIFICATION_REVOKED",
@@ -246,7 +319,10 @@ contract IncomeVerificationManager is
 
     function checkAndExpireVerifications(address[] memory users) external {
         for (uint256 i = 0; i < users.length; i++) {
-            if (_isIncomeVerificationExpired(users[i]) && incomeVerifications[users[i]].isVerified) {
+            if (
+                _isIncomeVerificationExpired(users[i]) &&
+                incomeVerifications[users[i]].isVerified
+            ) {
                 _expireIncomeVerification(users[i]);
             }
         }
@@ -257,29 +333,44 @@ contract IncomeVerificationManager is
         bool[] memory successes,
         bytes[] memory signatures
     ) external onlyRole(INCOME_ORACLE_ROLE) {
-        require(users.length == successes.length && successes.length == signatures.length, "Array lengths must match");
+        require(
+            users.length == successes.length &&
+                successes.length == signatures.length,
+            "Array lengths must match"
+        );
 
         for (uint256 i = 0; i < users.length; i++) {
             if (incomeVerifications[users[i]].isActive) {
-                completeIncomeVerification(users[i], successes[i], signatures[i]);
+                completeIncomeVerification(
+                    users[i],
+                    successes[i],
+                    signatures[i]
+                );
             }
         }
     }
 
     function isIncomeVerified(address user) external view returns (bool) {
-        return incomeVerifications[user].isVerified && 
-               incomeVerifications[user].isActive && 
-               !_isIncomeVerificationExpired(user);
+        return
+            incomeVerifications[user].isVerified &&
+            incomeVerifications[user].isActive &&
+            !_isIncomeVerificationExpired(user);
     }
 
-    function getIncomeVerificationInfo(address user) external view returns (
-        IncomeRange incomeRange,
-        uint256 timestamp,
-        bool isVerified,
-        string memory verificationSource,
-        uint256 expiryDate,
-        bool isExpired
-    ) {
+    function getIncomeVerificationInfo(
+        address user
+    )
+        external
+        view
+        returns (
+            IncomeRange incomeRange,
+            uint256 timestamp,
+            bool isVerified,
+            string memory verificationSource,
+            uint256 expiryDate,
+            bool isExpired
+        )
+    {
         IncomeVerification memory verification = incomeVerifications[user];
         return (
             verification.incomeRange,
@@ -291,20 +382,25 @@ contract IncomeVerificationManager is
         );
     }
 
-    function getIncomeHistory(address user) external view returns (IncomeVerification[] memory) {
+    function getIncomeHistory(
+        address user
+    ) external view returns (IncomeVerification[] memory) {
         return incomeHistory[user];
     }
 
-    function getIncomeRangeStats() external view returns (
-        uint256[5] memory rangeCounts,
-        uint256 totalVerified
-    ) {
+    function getIncomeRangeStats()
+        external
+        view
+        returns (uint256[5] memory rangeCounts, uint256 totalVerified)
+    {
         // This would require additional state tracking in production
         // For now, return placeholder values
         return ([uint256(0), 0, 0, 0, 0], 0);
     }
 
-    function _calculateIncomeBonus(IncomeRange range) private pure returns (uint256) {
+    function _calculateIncomeBonus(
+        IncomeRange range
+    ) private pure returns (uint256) {
         if (range == IncomeRange.Below1Lakh) return 0;
         if (range == IncomeRange.Lakh1to5) return 5;
         if (range == IncomeRange.Lakh5to10) return 10;
@@ -313,22 +409,34 @@ contract IncomeVerificationManager is
         return 0;
     }
 
-    function _isIncomeVerificationExpired(address user) private view returns (bool) {
+    function _isIncomeVerificationExpired(
+        address user
+    ) private view returns (bool) {
         IncomeVerification memory verification = incomeVerifications[user];
-        return verification.expiryDate != 0 && block.timestamp > verification.expiryDate;
+        return
+            verification.expiryDate != 0 &&
+            block.timestamp > verification.expiryDate;
     }
 
     function _expireIncomeVerification(address user) private {
-        uint256 deductionAmount = INCOME_VERIFICATION_SCORE + 
+        uint256 deductionAmount = INCOME_VERIFICATION_SCORE +
             _calculateIncomeBonus(incomeVerifications[user].incomeRange);
 
         incomeVerifications[user].isVerified = false;
         incomeVerifications[user].isActive = false;
 
         userRegistry.updateVerificationStatus(user, "income", false);
-        trustScore.updateScore(user, -int256(deductionAmount), "Income verification expired");
+        trustScore.updateScore(
+            user,
+            -int256(deductionAmount),
+            "Income verification expired"
+        );
 
-        verificationLogger.logEvent("INCOME_VERIFICATION_EXPIRED", user, bytes32(0));
+        verificationLogger.logEvent(
+            "INCOME_VERIFICATION_EXPIRED",
+            user,
+            bytes32(0)
+        );
         emit IncomeVerificationExpired(user);
     }
 

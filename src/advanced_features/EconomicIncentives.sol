@@ -408,12 +408,13 @@ contract EconomicIncentives is
     function _getStakingTier(
         uint256 stakedAmount
     ) private view returns (uint256) {
+        // Start from highest tier and work down
         for (uint256 i = stakingTierCount; i > 0; i--) {
             if (stakedAmount >= stakingTiers[i - 1].minStake) {
                 return i - 1;
             }
         }
-        return 0;
+        return 0; // Default to lowest tier
     }
 
     function _initializeStakingTiers() private {
