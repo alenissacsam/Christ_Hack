@@ -1,0 +1,14 @@
+# Compiler files
+Smart Contracts - Foudry/cache/
+Smart Contracts - Foudry/out/
+
+# Ignores development broadcast logs
+Smart Contracts - Foudry/!/broadcast
+Smart Contracts - Foudry/broadcast/*/31337/
+Smart Contracts - Foudry/broadcast/**/dry-run/
+
+# Docs
+Smart Contracts - Foudry/docs/
+
+# Dotenv file
+.env
