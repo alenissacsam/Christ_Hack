@@ -1,29 +1,25 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
+import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
 
 interface IVerificationLogger {
-    function logEvent(string memory eventType, address user, bytes32 dataHash) external;
+    function logEvent(
+        string memory eventType,
+        address user,
+        bytes32 dataHash
+    ) external;
 }
 
 interface ITrustScore {
     function initializeUser(address user) external;
 }
 
-contract UserIdentityRegistry is
-    Initializable,
-    AccessControlUpgradeable,
-    ReentrancyGuardUpgradeable,
-    UUPSUpgradeable,
-    PausableUpgradeable
-{
-    bytes32 public constant REGISTRY_MANAGER_ROLE = keccak256("REGISTRY_MANAGER_ROLE");
-    bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
+contract UserIdentityRegistry is AccessControl, ReentrancyGuard, Pausable {
+    bytes32 public constant REGISTRY_MANAGER_ROLE =
+        keccak256("REGISTRY_MANAGER_ROLE");
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
 
     struct Identity {
@@ -50,44 +46,36 @@ contract UserIdentityRegistry is
     event IdentityRegistered(address indexed user, bytes32 indexed commitment);
     event IdentityDeregistered(address indexed user);
     event IdentityUpdated(address indexed user, bytes32 newCommitment);
-    event VerificationStatusUpdated(address indexed user, string verificationType, bool status);
+    event VerificationStatusUpdated(
+        address indexed user,
+        string verificationType,
+        bool status
+    );
     event IdentityLocked(address indexed user, uint256 lockExpiry);
     event IdentityUnlocked(address indexed user);
     event CommitmentNullified(bytes32 indexed commitment);
 
-    /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
-        _disableInitializers();
-    }
-
-    function initialize(address _verificationLogger, address _trustScore) public initializer {
-        __AccessControl_init();
-        __ReentrancyGuard_init();
-        __UUPSUpgradeable_init();
-        __Pausable_init();
-
+    constructor(address _verificationLogger, address _trustScore) {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(REGISTRY_MANAGER_ROLE, msg.sender);
-        _grantRole(UPGRADER_ROLE, msg.sender);
         _grantRole(PAUSER_ROLE, msg.sender);
 
         verificationLogger = IVerificationLogger(_verificationLogger);
         trustScore = ITrustScore(_trustScore);
     }
 
-    function _authorizeUpgrade(address newImplementation) internal override onlyRole(UPGRADER_ROLE) {}
-
-    function registerIdentity(address user, bytes32 identityCommitment)
-        external
-        onlyRole(REGISTRY_MANAGER_ROLE)
-        nonReentrant
-        whenNotPaused
-    {
+    function registerIdentity(
+        address user,
+        bytes32 identityCommitment
+    ) external onlyRole(REGISTRY_MANAGER_ROLE) nonReentrant whenNotPaused {
         require(user != address(0), "Invalid user address");
         require(identityCommitment != bytes32(0), "Invalid commitment");
         require(!identities[user].isActive, "Identity already registered");
         require(!nullifiers[identityCommitment], "Commitment already used");
-        require(!inactiveCommitments[identityCommitment], "Commitment was previously nullified");
+        require(
+            !inactiveCommitments[identityCommitment],
+            "Commitment was previously nullified"
+        );
 
         identities[user] = Identity({
             identityCommitment: identityCommitment,
@@ -107,14 +95,19 @@ contract UserIdentityRegistry is
 
         trustScore.initializeUser(user);
 
-        verificationLogger.logEvent("IDENTITY_REGISTERED", user, identityCommitment);
+        verificationLogger.logEvent(
+            "IDENTITY_REGISTERED",
+            user,
+            identityCommitment
+        );
         emit IdentityRegistered(user, identityCommitment);
     }
 
-    function updateVerificationStatus(address user, string memory verificationType, bool status)
-        external
-        onlyRole(REGISTRY_MANAGER_ROLE)
-    {
+    function updateVerificationStatus(
+        address user,
+        string memory verificationType,
+        bool status
+    ) external onlyRole(REGISTRY_MANAGER_ROLE) {
         require(identities[user].isActive, "Identity not registered");
 
         bytes32 verificationHash = keccak256(bytes(verificationType));
@@ -135,30 +128,45 @@ contract UserIdentityRegistry is
         if (identities[user].faceVerified && identities[user].aadhaarVerified) {
             level = 2;
         }
-        if (identities[user].faceVerified && identities[user].aadhaarVerified && identities[user].incomeVerified) {
+        if (
+            identities[user].faceVerified &&
+            identities[user].aadhaarVerified &&
+            identities[user].incomeVerified
+        ) {
             level = 3;
         }
 
         identities[user].verificationLevel = level;
 
         verificationLogger.logEvent(
-            "VERIFICATION_STATUS_UPDATED", user, keccak256(abi.encodePacked(verificationType, status))
+            "VERIFICATION_STATUS_UPDATED",
+            user,
+            keccak256(abi.encodePacked(verificationType, status))
         );
 
         emit VerificationStatusUpdated(user, verificationType, status);
     }
 
-    function lockIdentity(address user, uint256 lockDuration) external onlyRole(REGISTRY_MANAGER_ROLE) {
+    function lockIdentity(
+        address user,
+        uint256 lockDuration
+    ) external onlyRole(REGISTRY_MANAGER_ROLE) {
         require(identities[user].isActive, "Identity not registered");
 
         identities[user].isLocked = true;
         identities[user].lockExpiry = block.timestamp + lockDuration;
 
-        verificationLogger.logEvent("IDENTITY_LOCKED", user, bytes32(block.timestamp + lockDuration));
+        verificationLogger.logEvent(
+            "IDENTITY_LOCKED",
+            user,
+            bytes32(block.timestamp + lockDuration)
+        );
         emit IdentityLocked(user, identities[user].lockExpiry);
     }
 
-    function unlockIdentity(address user) external onlyRole(REGISTRY_MANAGER_ROLE) {
+    function unlockIdentity(
+        address user
+    ) external onlyRole(REGISTRY_MANAGER_ROLE) {
         require(identities[user].isActive, "Identity not registered");
         require(identities[user].isLocked, "Identity not locked");
 
@@ -169,11 +177,17 @@ contract UserIdentityRegistry is
         emit IdentityUnlocked(user);
     }
 
-    function updateIdentityCommitment(address user, bytes32 newCommitment) external onlyRole(REGISTRY_MANAGER_ROLE) {
+    function updateIdentityCommitment(
+        address user,
+        bytes32 newCommitment
+    ) external onlyRole(REGISTRY_MANAGER_ROLE) {
         require(identities[user].isActive, "Identity not registered");
         require(newCommitment != bytes32(0), "Invalid commitment");
         require(!nullifiers[newCommitment], "New commitment already used");
-        require(!inactiveCommitments[newCommitment], "New commitment was previously nullified");
+        require(
+            !inactiveCommitments[newCommitment],
+            "New commitment was previously nullified"
+        );
 
         bytes32 oldCommitment = identities[user].identityCommitment;
 
@@ -190,7 +204,9 @@ contract UserIdentityRegistry is
         emit CommitmentNullified(oldCommitment);
     }
 
-    function deregisterIdentity(address user) external onlyRole(REGISTRY_MANAGER_ROLE) {
+    function deregisterIdentity(
+        address user
+    ) external onlyRole(REGISTRY_MANAGER_ROLE) {
         require(identities[user].isActive, "Identity not registered");
 
         bytes32 commitment = identities[user].identityCommitment;
@@ -228,7 +244,11 @@ contract UserIdentityRegistry is
             identities[user].lockExpiry = 0;
 
             if (address(verificationLogger) != address(0)) {
-                verificationLogger.logEvent("IDENTITY_AUTO_UNLOCKED", user, bytes32(0));
+                verificationLogger.logEvent(
+                    "IDENTITY_AUTO_UNLOCKED",
+                    user,
+                    bytes32(0)
+                );
             }
             emit IdentityUnlocked(user);
 
@@ -238,33 +258,59 @@ contract UserIdentityRegistry is
         return true;
     }
 
-    function getVerificationStatus(address user)
+    function getVerificationStatus(
+        address user
+    )
         external
         view
-        returns (bool faceVerified, bool aadhaarVerified, bool incomeVerified, uint256 verificationLevel)
+        returns (
+            bool faceVerified,
+            bool aadhaarVerified,
+            bool incomeVerified,
+            uint256 verificationLevel
+        )
     {
         Identity memory identity = identities[user];
-        return (identity.faceVerified, identity.aadhaarVerified, identity.incomeVerified, identity.verificationLevel);
+        return (
+            identity.faceVerified,
+            identity.aadhaarVerified,
+            identity.incomeVerified,
+            identity.verificationLevel
+        );
     }
 
-    function getIdentityCommitment(address user) external view returns (bytes32) {
+    function getIdentityCommitment(
+        address user
+    ) external view returns (bytes32) {
         require(identities[user].isActive, "Identity not registered");
         return identities[user].identityCommitment;
     }
 
-    function getIdentityInfo(address user) external view returns (Identity memory) {
+    function getIdentityInfo(
+        address user
+    ) external view returns (Identity memory) {
         return identities[user];
     }
 
-    function isCommitmentActive(bytes32 commitment) external view returns (bool) {
+    function isCommitmentActive(
+        bytes32 commitment
+    ) external view returns (bool) {
         return
-            nullifiers[commitment] && !inactiveCommitments[commitment] && commitmentToAddress[commitment] != address(0);
+            nullifiers[commitment] &&
+            !inactiveCommitments[commitment] &&
+            commitmentToAddress[commitment] != address(0);
     }
 
-    function isCommitmentValid(bytes32 commitment, address expectedUser) external view returns (bool) {
-        return nullifiers[commitment] && !inactiveCommitments[commitment]
-            && commitmentToAddress[commitment] == expectedUser && identities[expectedUser].isActive
-            && !identities[expectedUser].isLocked;
+    function isCommitmentValid(
+        bytes32 commitment,
+        address expectedUser
+    ) external view returns (bool) {
+        return
+            nullifiers[commitment] &&
+            !inactiveCommitments[commitment] &&
+            commitmentToAddress[commitment] == expectedUser &&
+            identities[expectedUser].isActive &&
+            !identities[expectedUser].isLocked;
     }
 
     function pause() external onlyRole(PAUSER_ROLE) {

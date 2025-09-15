@@ -1,4 +1,4 @@
-include ../.env
+include .env
 
 install:
 	@forge install cyfrin/foundry-devops
@@ -10,10 +10,8 @@ deploy-nexus:
 	--rpc-url ${NEXUS_RPC_URL} --private-key ${NEXUS_KEY} \
 	--verify --verifier blockscout --verifier-url ${NEXUS_VERIFIER} -vv
 
+deploy-polygon:
+
 deploy-sepolia:
-	@forge script script/deploy.s.sol:DeployAll --via-ir --broadcast \
-	--rpc-url ${SEPOLIA_RPC_URL} --private-key ${KEY} \
-	--verify --verifier blockscout --verifier-url ${SEPOLIA_VERIFIER} -vv
-BSigner:
-	@forge script script/interactions.s.sol:faceVerification --via-ir --broadcast \
-	--rpc-url ${SEPOLIA_RPC_URL} --private-key ${KEY}
+	@forge script script/DeployEduCertCoreContracts.s.sol:DeployEduCertCoreContracts --via-ir --broadcast \
+	--rpc-url https://sepolia.drpc.org --private-key --legacy -vv

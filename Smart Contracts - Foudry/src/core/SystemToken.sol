@@ -1,29 +1,23 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20BurnableUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/ERC20PausableUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Pausable.sol";
+import "@openzeppelin/contracts/access/AccessControl.sol";
 
 interface IVerificationLogger {
-    function logEvent(string memory eventType, address user, bytes32 dataHash) external;
+    function logEvent(
+        string memory eventType,
+        address user,
+        bytes32 dataHash
+    ) external;
 }
 
-contract SystemToken is
-    Initializable,
-    ERC20Upgradeable,
-    ERC20BurnableUpgradeable,
-    ERC20PausableUpgradeable,
-    AccessControlUpgradeable,
-    UUPSUpgradeable
-{
+contract SystemToken is ERC20, ERC20Burnable, ERC20Pausable, AccessControl {
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
     bytes32 public constant BURNER_ROLE = keccak256("BURNER_ROLE");
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
-    bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
 
     struct VestingSchedule {
         uint256 totalAmount;
@@ -56,41 +50,33 @@ contract SystemToken is
     address public treasuryWallet;
     address public ecosystemWallet;
 
-    event VestingCreated(address indexed beneficiary, uint256 amount, uint256 duration);
+    event VestingCreated(
+        address indexed beneficiary,
+        uint256 amount,
+        uint256 duration
+    );
     event TokensWithdrawn(address indexed beneficiary, uint256 amount);
     event VestingRevoked(address indexed beneficiary, uint256 scheduleIndex);
     event Blacklisted(address indexed account);
     event Unblacklisted(address indexed account);
 
-    /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
-        _disableInitializers();
-    }
-
-    function initialize(
+    constructor(
         address _communityWallet,
         address _teamWallet,
         address _treasuryWallet,
         address _ecosystemWallet,
         address _verificationLogger
-    ) public initializer {
+    ) ERC20("EduCert Token", "EDU") {
         require(_communityWallet != address(0), "Invalid community wallet");
         require(_teamWallet != address(0), "Invalid team wallet");
         require(_treasuryWallet != address(0), "Invalid treasury wallet");
         require(_ecosystemWallet != address(0), "Invalid ecosystem wallet");
         require(_verificationLogger != address(0), "Invalid logger address");
 
-        __ERC20_init("EduCert Token", "EDU");
-        __ERC20Burnable_init();
-        __ERC20Pausable_init();
-        __AccessControl_init();
-        __UUPSUpgradeable_init();
-
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(MINTER_ROLE, msg.sender);
         _grantRole(BURNER_ROLE, msg.sender);
         _grantRole(PAUSER_ROLE, msg.sender);
-        _grantRole(UPGRADER_ROLE, msg.sender);
 
         communityWallet = _communityWallet;
         teamWallet = _teamWallet;
@@ -105,27 +91,40 @@ contract SystemToken is
         _distributeInitialTokens();
     }
 
-    function _authorizeUpgrade(address newImplementation) internal override onlyRole(UPGRADER_ROLE) {}
-
     function mint(address to, uint256 amount) public onlyRole(MINTER_ROLE) {
         require(totalSupply() + amount <= MAX_SUPPLY, "Exceeds max supply");
         require(!blacklisted[to], "Address blacklisted");
 
         _mint(to, amount);
 
-        verificationLogger.logEvent("TOKENS_MINTED", to, keccak256(abi.encodePacked(amount)));
+        verificationLogger.logEvent(
+            "TOKENS_MINTED",
+            to,
+            keccak256(abi.encodePacked(amount))
+        );
     }
 
     function burn(uint256 amount) public override {
         super.burn(amount);
 
-        verificationLogger.logEvent("TOKENS_BURNED", msg.sender, keccak256(abi.encodePacked(amount)));
+        verificationLogger.logEvent(
+            "TOKENS_BURNED",
+            msg.sender,
+            keccak256(abi.encodePacked(amount))
+        );
     }
 
-    function burnFrom(address account, uint256 amount) public override onlyRole(BURNER_ROLE) {
+    function burnFrom(
+        address account,
+        uint256 amount
+    ) public override onlyRole(BURNER_ROLE) {
         super.burnFrom(account, amount);
 
-        verificationLogger.logEvent("TOKENS_BURNED_FROM", account, keccak256(abi.encodePacked(amount, msg.sender)));
+        verificationLogger.logEvent(
+            "TOKENS_BURNED_FROM",
+            account,
+            keccak256(abi.encodePacked(amount, msg.sender))
+        );
     }
 
     function pause() public onlyRole(PAUSER_ROLE) {
@@ -145,10 +144,16 @@ contract SystemToken is
         emit Blacklisted(account);
     }
 
-    function unblacklist(address account) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function unblacklist(
+        address account
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         blacklisted[account] = false;
 
-        verificationLogger.logEvent("ADDRESS_UNBLACKLISTED", account, bytes32(0));
+        verificationLogger.logEvent(
+            "ADDRESS_UNBLACKLISTED",
+            account,
+            bytes32(0)
+        );
 
         emit Unblacklisted(account);
     }
@@ -165,7 +170,10 @@ contract SystemToken is
         require(beneficiary != address(0), "Invalid beneficiary");
         require(amount > 0, "Amount must be positive");
         require(duration >= cliffDuration, "Duration < cliff");
-        require(balanceOf(address(this)) >= amount, "Insufficient contract balance");
+        require(
+            balanceOf(address(this)) >= amount,
+            "Insufficient contract balance"
+        );
 
         vestingSchedules[beneficiary].push(
             VestingSchedule({
@@ -180,15 +188,24 @@ contract SystemToken is
             })
         );
 
-        verificationLogger.logEvent("VESTING_CREATED", beneficiary, keccak256(abi.encodePacked(amount, duration)));
+        verificationLogger.logEvent(
+            "VESTING_CREATED",
+            beneficiary,
+            keccak256(abi.encodePacked(amount, duration))
+        );
 
         emit VestingCreated(beneficiary, amount, duration);
     }
 
     function withdraw(uint256 scheduleIndex) external {
-        require(scheduleIndex < vestingSchedules[msg.sender].length, "Invalid schedule index");
+        require(
+            scheduleIndex < vestingSchedules[msg.sender].length,
+            "Invalid schedule index"
+        );
 
-        VestingSchedule storage schedule = vestingSchedules[msg.sender][scheduleIndex];
+        VestingSchedule storage schedule = vestingSchedules[msg.sender][
+            scheduleIndex
+        ];
         require(!schedule.revoked, "Schedule revoked");
 
         uint256 withdrawable = _computeReleasableAmount(schedule);
@@ -198,16 +215,26 @@ contract SystemToken is
         _transfer(address(this), msg.sender, withdrawable);
 
         verificationLogger.logEvent(
-            "VESTED_TOKENS_WITHDRAWN", msg.sender, keccak256(abi.encodePacked(withdrawable, scheduleIndex))
+            "VESTED_TOKENS_WITHDRAWN",
+            msg.sender,
+            keccak256(abi.encodePacked(withdrawable, scheduleIndex))
         );
 
         emit TokensWithdrawn(msg.sender, withdrawable);
     }
 
-    function revokeVesting(address beneficiary, uint256 scheduleIndex) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(scheduleIndex < vestingSchedules[beneficiary].length, "Invalid schedule index");
+    function revokeVesting(
+        address beneficiary,
+        uint256 scheduleIndex
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(
+            scheduleIndex < vestingSchedules[beneficiary].length,
+            "Invalid schedule index"
+        );
 
-        VestingSchedule storage schedule = vestingSchedules[beneficiary][scheduleIndex];
+        VestingSchedule storage schedule = vestingSchedules[beneficiary][
+            scheduleIndex
+        ];
         require(schedule.revocable, "Schedule not revocable");
         require(!schedule.revoked, "Already revoked");
 
@@ -219,12 +246,19 @@ contract SystemToken is
 
         schedule.revoked = true;
 
-        verificationLogger.logEvent("VESTING_REVOKED", beneficiary, keccak256(abi.encodePacked(scheduleIndex)));
+        verificationLogger.logEvent(
+            "VESTING_REVOKED",
+            beneficiary,
+            keccak256(abi.encodePacked(scheduleIndex))
+        );
 
         emit VestingRevoked(beneficiary, scheduleIndex);
     }
 
-    function getVestingSchedule(address beneficiary, uint256 index)
+    function getVestingSchedule(
+        address beneficiary,
+        uint256 index
+    )
         external
         view
         returns (
@@ -253,11 +287,15 @@ contract SystemToken is
         );
     }
 
-    function getVestingScheduleCount(address beneficiary) external view returns (uint256) {
+    function getVestingScheduleCount(
+        address beneficiary
+    ) external view returns (uint256) {
         return vestingSchedules[beneficiary].length;
     }
 
-    function getTotalVestedAmount(address beneficiary) external view returns (uint256) {
+    function getTotalVestedAmount(
+        address beneficiary
+    ) external view returns (uint256) {
         uint256 totalVested = 0;
         for (uint256 i = 0; i < vestingSchedules[beneficiary].length; i++) {
             if (!vestingSchedules[beneficiary][i].revoked) {
@@ -267,7 +305,9 @@ contract SystemToken is
         return totalVested;
     }
 
-    function _computeReleasableAmount(VestingSchedule memory schedule) private view returns (uint256) {
+    function _computeReleasableAmount(
+        VestingSchedule memory schedule
+    ) private view returns (uint256) {
         if (schedule.revoked) return 0;
         if (block.timestamp < schedule.startTime + schedule.cliffDuration) {
             return 0;
@@ -284,7 +324,11 @@ contract SystemToken is
             require(schedule.duration > 0, "Invalid duration");
 
             uint256 vestedPeriods = timeFromStart / schedule.slicePeriodSeconds;
-            vestedAmount = (schedule.totalAmount * vestedPeriods * schedule.slicePeriodSeconds) / schedule.duration;
+            vestedAmount =
+                (schedule.totalAmount *
+                    vestedPeriods *
+                    schedule.slicePeriodSeconds) /
+                schedule.duration;
         }
 
         // Ensure we don't return more than what's available
@@ -300,11 +344,14 @@ contract SystemToken is
     }
 
     function _distributeInitialTokens() private {
-        uint256 communityAmount = (INITIAL_SUPPLY * COMMUNITY_ALLOCATION) / 10000;
+        uint256 communityAmount = (INITIAL_SUPPLY * COMMUNITY_ALLOCATION) /
+            10000;
         uint256 teamAmount = (INITIAL_SUPPLY * TEAM_ALLOCATION) / 10000;
         uint256 treasuryAmount = (INITIAL_SUPPLY * TREASURY_ALLOCATION) / 10000;
-        uint256 ecosystemAmount = (INITIAL_SUPPLY * ECOSYSTEM_ALLOCATION) / 10000;
-        uint256 publicSaleAmount = (INITIAL_SUPPLY * PUBLIC_SALE_ALLOCATION) / 10000;
+        uint256 ecosystemAmount = (INITIAL_SUPPLY * ECOSYSTEM_ALLOCATION) /
+            10000;
+        uint256 publicSaleAmount = (INITIAL_SUPPLY * PUBLIC_SALE_ALLOCATION) /
+            10000;
 
         // Community allocation - immediate transfer
         _transfer(address(this), communityWallet, communityAmount);
@@ -330,15 +377,18 @@ contract SystemToken is
         // The remaining tokens stay in contract for public sale
     }
 
-    function _update(address from, address to, uint256 amount)
-        internal
-        override(ERC20Upgradeable, ERC20PausableUpgradeable)
-    {
+    function _update(
+        address from,
+        address to,
+        uint256 amount
+    ) internal override(ERC20, ERC20Pausable) {
         require(!blacklisted[from] && !blacklisted[to], "Blacklisted address");
         super._update(from, to, amount);
     }
 
-    function supportsInterface(bytes4 interfaceId) public view override(AccessControlUpgradeable) returns (bool) {
+    function supportsInterface(
+        bytes4 interfaceId
+    ) public view override(AccessControl) returns (bool) {
         return super.supportsInterface(interfaceId);
     }
 }

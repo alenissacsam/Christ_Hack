@@ -1,32 +1,46 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 interface ITrustScore {
     function getTrustScore(address user) external view returns (uint256);
 
-    function updateScore(address user, int256 delta, string memory reason) external;
+    function updateScore(
+        address user,
+        int256 delta,
+        string memory reason
+    ) external;
 }
 
 interface IVerificationLogger {
-    function logEvent(string memory eventType, address user, bytes32 dataHash) external;
+    function logEvent(
+        string memory eventType,
+        address user,
+        bytes32 dataHash
+    ) external;
 }
 
 interface IEconomicIncentives {
-    function getStakeInfo(address user)
+    function getStakeInfo(
+        address user
+    )
         external
         view
-        returns (uint256 amount, uint256 stakedAt, bool isActive, uint256 lockExpiry, bool isSlashed, uint256 tier);
+        returns (
+            uint256 amount,
+            uint256 stakedAt,
+            bool isActive,
+            uint256 lockExpiry,
+            bool isSlashed,
+            uint256 tier
+        );
 }
 
-contract GovernanceManager is Initializable, AccessControlUpgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable {
+contract GovernanceManager is AccessControl, ReentrancyGuard {
     bytes32 public constant GOVERNOR_ROLE = keccak256("GOVERNOR_ROLE");
     bytes32 public constant EXECUTOR_ROLE = keccak256("EXECUTOR_ROLE");
-    bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
 
     enum ProposalState {
         Pending,
@@ -96,40 +110,46 @@ contract GovernanceManager is Initializable, AccessControlUpgradeable, Reentranc
     IEconomicIncentives public economicIncentives;
 
     event ProposalCreated(
-        uint256 indexed proposalId, address indexed proposer, ProposalType proposalType, string title
+        uint256 indexed proposalId,
+        address indexed proposer,
+        ProposalType proposalType,
+        string title
     );
-    event VoteCast(uint256 indexed proposalId, address indexed voter, uint8 support, uint256 weight, string reason);
+    event VoteCast(
+        uint256 indexed proposalId,
+        address indexed voter,
+        uint8 support,
+        uint256 weight,
+        string reason
+    );
     event ProposalExecuted(uint256 indexed proposalId);
     event ProposalCancelled(uint256 indexed proposalId, string reason);
-    event ProposalStateChanged(uint256 indexed proposalId, ProposalState newState);
-    event GovernanceConfigUpdated(ProposalType proposalType, string parameter, uint256 newValue);
+    event ProposalStateChanged(
+        uint256 indexed proposalId,
+        ProposalState newState
+    );
+    event GovernanceConfigUpdated(
+        ProposalType proposalType,
+        string parameter,
+        uint256 newValue
+    );
     event SystemPaused(address indexed pauser, string reason);
     event SystemUnpaused(address indexed unpauser);
 
-    /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
-        _disableInitializers();
-    }
-
-    function initialize(address _trustScore, address _verificationLogger, address _economicIncentives)
-        public
-        initializer
-    {
-        __AccessControl_init();
-        __ReentrancyGuard_init();
-        __UUPSUpgradeable_init();
+    constructor(
+        address _trustScore,
+        address _verificationLogger,
+        address _economicIncentives
+    ) {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(GOVERNOR_ROLE, msg.sender);
         _grantRole(EXECUTOR_ROLE, msg.sender);
-        _grantRole(UPGRADER_ROLE, msg.sender);
 
         trustScore = ITrustScore(_trustScore);
         verificationLogger = IVerificationLogger(_verificationLogger);
         economicIncentives = IEconomicIncentives(_economicIncentives);
         _initializeGovernanceConfigs();
     }
-
-    function _authorizeUpgrade(address newImplementation) internal override onlyRole(UPGRADER_ROLE) {}
 
     function createProposal(
         ProposalType proposalType,
@@ -142,11 +162,18 @@ contract GovernanceManager is Initializable, AccessControlUpgradeable, Reentranc
     ) external nonReentrant returns (uint256) {
         require(!systemPaused, "System is paused");
         require(bytes(title).length > 0, "Title required");
-        require(targets.length == values.length && values.length == callDatas.length, "Arrays length mismatch");
+        require(
+            targets.length == values.length &&
+                values.length == callDatas.length,
+            "Arrays length mismatch"
+        );
 
         GovernanceConfig memory config = governanceConfigs[proposalType];
         uint256 proposerWeight = getVotingWeight(msg.sender);
-        require(proposerWeight >= config.proposalThreshold, "Insufficient voting weight");
+        require(
+            proposerWeight >= config.proposalThreshold,
+            "Insufficient voting weight"
+        );
 
         proposalCounter++;
         uint256 proposalId = proposalCounter;
@@ -180,13 +207,17 @@ contract GovernanceManager is Initializable, AccessControlUpgradeable, Reentranc
         verificationLogger.logEvent(
             "GOVERNANCE_PROPOSAL_CREATED",
             msg.sender,
-            keccak256(abi.encodePacked(proposalId, title, uint256(proposalType)))
+            keccak256(
+                abi.encodePacked(proposalId, title, uint256(proposalType))
+            )
         );
         emit ProposalCreated(proposalId, msg.sender, proposalType, title);
         return proposalId;
     }
 
-    function getProposalMeta(uint256 proposalId)
+    function getProposalMeta(
+        uint256 proposalId
+    )
         external
         view
         returns (
@@ -207,7 +238,9 @@ contract GovernanceManager is Initializable, AccessControlUpgradeable, Reentranc
         metadataUri = prop.metadataUri;
     }
 
-    function getProposalVoting(uint256 proposalId)
+    function getProposalVoting(
+        uint256 proposalId
+    )
         external
         view
         returns (
@@ -238,7 +271,9 @@ contract GovernanceManager is Initializable, AccessControlUpgradeable, Reentranc
 
     function getVotingWeight(address user) public view returns (uint256) {
         uint256 trustScoreWeight = trustScore.getTrustScore(user);
-        (,, bool isActive,,, uint256 tier) = economicIncentives.getStakeInfo(user);
+        (, , bool isActive, , , uint256 tier) = economicIncentives.getStakeInfo(
+            user
+        );
 
         uint256 stakingMultiplier = isActive ? (100 + (tier * 25)) : 100;
         uint256 weight = (trustScoreWeight * stakingMultiplier) / 100;

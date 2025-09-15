@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts/access/AccessControl.sol";
 
 interface IVerificationLogger {
-    function logEvent(string memory eventType, address user, bytes32 dataHash) external;
+    function logEvent(
+        string memory eventType,
+        address user,
+        bytes32 dataHash
+    ) external;
 }
 
-contract TrustScore is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
-    bytes32 public constant SCORE_MANAGER_ROLE = keccak256("SCORE_MANAGER_ROLE");
-    bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
+contract TrustScore is AccessControl {
+    bytes32 public constant SCORE_MANAGER_ROLE =
+        keccak256("SCORE_MANAGER_ROLE");
 
     struct ScoreComponents {
         uint256 baseScore;
@@ -50,31 +52,27 @@ contract TrustScore is Initializable, AccessControlUpgradeable, UUPSUpgradeable 
     uint256 public constant INCOME_VERIFICATION_BASE_SCORE = 25;
     uint256 public constant LOCK_PENALTY = 20;
 
-    event ScoreUpdated(address indexed user, int256 delta, uint256 newScore, string reason);
+    event ScoreUpdated(
+        address indexed user,
+        int256 delta,
+        uint256 newScore,
+        string reason
+    );
     event UserInitialized(address indexed user);
     event ScoreDecayed(address indexed user, uint256 decayAmount);
     event ScoreLocked(address indexed user, uint256 penalty);
     event ScoreUnlocked(address indexed user);
 
-    /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
-        _disableInitializers();
-    }
-
-    function initialize(address _verificationLogger) public initializer {
-        __AccessControl_init();
-        __UUPSUpgradeable_init();
-
+    constructor(address _verificationLogger) {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(SCORE_MANAGER_ROLE, msg.sender);
-        _grantRole(UPGRADER_ROLE, msg.sender);
 
         verificationLogger = IVerificationLogger(_verificationLogger);
     }
 
-    function _authorizeUpgrade(address newImplementation) internal override onlyRole(UPGRADER_ROLE) {}
-
-    function initializeUser(address user) external onlyRole(SCORE_MANAGER_ROLE) {
+    function initializeUser(
+        address user
+    ) external onlyRole(SCORE_MANAGER_ROLE) {
         require(user != address(0), "Invalid user address");
         require(!hasScore[user], "User already initialized");
 
@@ -96,11 +94,19 @@ contract TrustScore is Initializable, AccessControlUpgradeable, UUPSUpgradeable 
         hasScore[user] = true;
         scoredUsers.push(user);
 
-        verificationLogger.logEvent("USER_TRUST_SCORE_INITIALIZED", user, bytes32(INITIAL_SCORE));
+        verificationLogger.logEvent(
+            "USER_TRUST_SCORE_INITIALIZED",
+            user,
+            bytes32(INITIAL_SCORE)
+        );
         emit UserInitialized(user);
     }
 
-    function updateScore(address user, int256 delta, string memory reason) external onlyRole(SCORE_MANAGER_ROLE) {
+    function updateScore(
+        address user,
+        int256 delta,
+        string memory reason
+    ) external onlyRole(SCORE_MANAGER_ROLE) {
         require(user != address(0), "Invalid user address");
         require(bytes(reason).length > 0, "Reason required");
         require(hasScore[user], "User not initialized");
@@ -120,20 +126,39 @@ contract TrustScore is Initializable, AccessControlUpgradeable, UUPSUpgradeable 
 
             if (reasonHash == keccak256("Face verification completed")) {
                 components.faceVerificationScore = FACE_VERIFICATION_SCORE;
-            } else if (reasonHash == keccak256("Aadhaar verification completed")) {
-                components.aadhaarVerificationScore = AADHAAR_VERIFICATION_SCORE;
-            } else if (reasonHash == keccak256("Income verification completed")) {
-                uint256 newScore = components.incomeVerificationScore + increase;
-                components.incomeVerificationScore = newScore > MAX_SCORE ? MAX_SCORE : newScore;
-            } else if (reasonHash == keccak256("Educational certificate issued")) {
+            } else if (
+                reasonHash == keccak256("Aadhaar verification completed")
+            ) {
+                components
+                    .aadhaarVerificationScore = AADHAAR_VERIFICATION_SCORE;
+            } else if (
+                reasonHash == keccak256("Income verification completed")
+            ) {
+                uint256 newScore = components.incomeVerificationScore +
+                    increase;
+                components.incomeVerificationScore = newScore > MAX_SCORE
+                    ? MAX_SCORE
+                    : newScore;
+            } else if (
+                reasonHash == keccak256("Educational certificate issued")
+            ) {
                 uint256 newScore = components.certificateScore + increase;
-                components.certificateScore = newScore > MAX_SCORE ? MAX_SCORE : newScore;
-            } else if (reasonHash == keccak256("Badge awarded") || reasonHash == keccak256("Auto badge awarded")) {
+                components.certificateScore = newScore > MAX_SCORE
+                    ? MAX_SCORE
+                    : newScore;
+            } else if (
+                reasonHash == keccak256("Badge awarded") ||
+                reasonHash == keccak256("Auto badge awarded")
+            ) {
                 uint256 newScore = components.reputationScore + increase;
-                components.reputationScore = newScore > MAX_SCORE ? MAX_SCORE : newScore;
+                components.reputationScore = newScore > MAX_SCORE
+                    ? MAX_SCORE
+                    : newScore;
             } else {
                 uint256 newScore = components.participationScore + increase;
-                components.participationScore = newScore > MAX_SCORE ? MAX_SCORE : newScore;
+                components.participationScore = newScore > MAX_SCORE
+                    ? MAX_SCORE
+                    : newScore;
             }
         } else {
             uint256 decrease = uint256(-delta);
@@ -141,13 +166,17 @@ contract TrustScore is Initializable, AccessControlUpgradeable, UUPSUpgradeable 
 
             if (reasonHash == keccak256("Face verification revoked")) {
                 components.faceVerificationScore = 0;
-            } else if (reasonHash == keccak256("Aadhaar verification revoked")) {
+            } else if (
+                reasonHash == keccak256("Aadhaar verification revoked")
+            ) {
                 components.aadhaarVerificationScore = 0;
             } else if (reasonHash == keccak256("Income verification revoked")) {
                 components.incomeVerificationScore = 0;
             } else {
                 uint256 newPenalty = components.penaltyScore + decrease;
-                components.penaltyScore = newPenalty > MAX_SCORE ? MAX_SCORE : newPenalty;
+                components.penaltyScore = newPenalty > MAX_SCORE
+                    ? MAX_SCORE
+                    : newPenalty;
             }
         }
 
@@ -157,26 +186,40 @@ contract TrustScore is Initializable, AccessControlUpgradeable, UUPSUpgradeable 
 
         // Add to history
         scoreHistory[user].push(
-            ScoreHistory({delta: delta, reason: reason, timestamp: block.timestamp, updater: msg.sender})
+            ScoreHistory({
+                delta: delta,
+                reason: reason,
+                timestamp: block.timestamp,
+                updater: msg.sender
+            })
         );
 
         uint256 newTotalScore = _calculateTotalScore(user);
 
         verificationLogger.logEvent(
-            "TRUST_SCORE_UPDATED", user, keccak256(abi.encodePacked(delta, reason, newTotalScore))
+            "TRUST_SCORE_UPDATED",
+            user,
+            keccak256(abi.encodePacked(delta, reason, newTotalScore))
         );
 
         emit ScoreUpdated(user, delta, newTotalScore, reason);
     }
 
-    function lockScore(address user, string memory reason) external onlyRole(SCORE_MANAGER_ROLE) {
+    function lockScore(
+        address user,
+        string memory reason
+    ) external onlyRole(SCORE_MANAGER_ROLE) {
         require(hasScore[user], "User not initialized");
         require(!userScores[user].isLocked, "Score already locked");
 
         userScores[user].isLocked = true;
         userScores[user].lockPenalty = LOCK_PENALTY;
 
-        verificationLogger.logEvent("TRUST_SCORE_LOCKED", user, keccak256(bytes(reason)));
+        verificationLogger.logEvent(
+            "TRUST_SCORE_LOCKED",
+            user,
+            keccak256(bytes(reason))
+        );
         emit ScoreLocked(user, LOCK_PENALTY);
     }
 
@@ -196,7 +239,9 @@ contract TrustScore is Initializable, AccessControlUpgradeable, UUPSUpgradeable 
         return _calculateTotalScoreWithDecay(user);
     }
 
-    function getDetailedScore(address user)
+    function getDetailedScore(
+        address user
+    )
         external
         view
         returns (
@@ -231,23 +276,31 @@ contract TrustScore is Initializable, AccessControlUpgradeable, UUPSUpgradeable 
         );
     }
 
-    function getVerificationLevel(address user) external view returns (uint256) {
+    function getVerificationLevel(
+        address user
+    ) external view returns (uint256) {
         if (!hasScore[user]) return 0;
 
         ScoreComponents memory components = userScores[user];
         uint256 level = 0;
 
         if (components.faceVerificationScore > 0) level = 1;
-        if (components.faceVerificationScore > 0 && components.aadhaarVerificationScore > 0) level = 2;
         if (
-            components.faceVerificationScore > 0 && components.aadhaarVerificationScore > 0
-                && components.incomeVerificationScore > 0
+            components.faceVerificationScore > 0 &&
+            components.aadhaarVerificationScore > 0
+        ) level = 2;
+        if (
+            components.faceVerificationScore > 0 &&
+            components.aadhaarVerificationScore > 0 &&
+            components.incomeVerificationScore > 0
         ) level = 3;
 
         return level;
     }
 
-    function getUsersAboveScore(uint256 minScore) external view returns (address[] memory) {
+    function getUsersAboveScore(
+        uint256 minScore
+    ) external view returns (address[] memory) {
         address[] memory result = new address[](scoredUsers.length);
         uint256 count = 0;
 
@@ -265,7 +318,9 @@ contract TrustScore is Initializable, AccessControlUpgradeable, UUPSUpgradeable 
         return result;
     }
 
-    function getScoreHistory(address user) external view returns (ScoreHistory[] memory) {
+    function getScoreHistory(
+        address user
+    ) external view returns (ScoreHistory[] memory) {
         return scoreHistory[user];
     }
 
@@ -277,9 +332,13 @@ contract TrustScore is Initializable, AccessControlUpgradeable, UUPSUpgradeable 
     function _calculateTotalScore(address user) private view returns (uint256) {
         ScoreComponents memory components = userScores[user];
 
-        uint256 totalPositive = components.baseScore + components.faceVerificationScore
-            + components.aadhaarVerificationScore + components.incomeVerificationScore + components.certificateScore
-            + components.participationScore + components.reputationScore;
+        uint256 totalPositive = components.baseScore +
+            components.faceVerificationScore +
+            components.aadhaarVerificationScore +
+            components.incomeVerificationScore +
+            components.certificateScore +
+            components.participationScore +
+            components.reputationScore;
 
         uint256 totalPenalty = components.penaltyScore + components.lockPenalty;
 
@@ -289,7 +348,9 @@ contract TrustScore is Initializable, AccessControlUpgradeable, UUPSUpgradeable 
         return finalScore > MAX_SCORE ? MAX_SCORE : finalScore;
     }
 
-    function _calculateTotalScoreWithDecay(address user) private view returns (uint256) {
+    function _calculateTotalScoreWithDecay(
+        address user
+    ) private view returns (uint256) {
         if (!hasScore[user]) return 0;
 
         uint256 baseScore = _calculateTotalScore(user);
@@ -313,7 +374,9 @@ contract TrustScore is Initializable, AccessControlUpgradeable, UUPSUpgradeable 
     function _applyDecay(address user) private {
         uint256 decayAmount = _calculateDecay(user);
         if (decayAmount > 0) {
-            userScores[user].penaltyScore = userScores[user].penaltyScore + decayAmount;
+            userScores[user].penaltyScore =
+                userScores[user].penaltyScore +
+                decayAmount;
             userScores[user].lastUpdated = block.timestamp;
             emit ScoreDecayed(user, decayAmount);
         }

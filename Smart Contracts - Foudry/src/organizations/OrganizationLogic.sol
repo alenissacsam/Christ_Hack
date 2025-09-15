@@ -2,9 +2,8 @@
 pragma solidity ^0.8.19;
 
 import "./OrganizationStorage.sol";
-import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 interface ICertificateManager {
     function grantRole(bytes32 role, address account) external;
@@ -13,64 +12,68 @@ interface ICertificateManager {
 }
 
 interface ITrustScore {
-    function updateScore(address user, int256 delta, string memory reason) external;
+    function updateScore(
+        address user,
+        int256 delta,
+        string memory reason
+    ) external;
 }
 
 interface IVerificationLogger {
-    function logEvent(string memory eventType, address user, bytes32 dataHash) external;
+    function logEvent(
+        string memory eventType,
+        address user,
+        bytes32 dataHash
+    ) external;
 }
 
 abstract contract OrganizationLogic is
     OrganizationStorage,
-    Initializable,
-    AccessControlUpgradeable,
-    ReentrancyGuardUpgradeable,
-    UUPSUpgradeable
+    AccessControl,
+    ReentrancyGuard
 {
     bytes32 public constant ORG_ADMIN_ROLE = keccak256("ORG_ADMIN_ROLE");
     bytes32 public constant ISSUER_ROLE = keccak256("ISSUER_ROLE");
     bytes32 public constant VERIFIER_ROLE = keccak256("VERIFIER_ROLE");
-    bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
 
     ICertificateManager public certificateManager;
     ITrustScore public trustScore;
     IVerificationLogger public verificationLogger;
     uint256 public constant MIN_ORG_TRUST_SCORE = 25;
 
-    event OrganizationRegistered(address indexed orgAddress, string name, OrganizationType orgType);
+    event OrganizationRegistered(
+        address indexed orgAddress,
+        string name,
+        OrganizationType orgType
+    );
     event OrganizationApproved(address indexed orgAddress, string name);
     event OrganizationSuspended(address indexed orgAddress, string reason);
     event OrganizationReactivated(address indexed orgAddress);
     event IssuerRoleGranted(address indexed orgAddress, string name);
     event IssuerRoleRevoked(address indexed orgAddress, string reason);
-    event AccreditationAdded(address indexed orgAddress, AccreditationType accType);
-    event AccreditationRevoked(address indexed orgAddress, AccreditationType accType);
+    event AccreditationAdded(
+        address indexed orgAddress,
+        AccreditationType accType
+    );
+    event AccreditationRevoked(
+        address indexed orgAddress,
+        AccreditationType accType
+    );
     event OrganizationUpdated(address indexed orgAddress, string updateType);
 
-    /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
-        _disableInitializers();
-    }
-
-    function initializeLogic(address _certificateManager, address _trustScore, address _verificationLogger)
-        internal
-        onlyInitializing
-    {
-        __AccessControl_init();
-        __ReentrancyGuard_init();
-        __UUPSUpgradeable_init();
-
+    constructor(
+        address _certificateManager,
+        address _trustScore,
+        address _verificationLogger
+    ) {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(ORG_ADMIN_ROLE, msg.sender);
         _grantRole(VERIFIER_ROLE, msg.sender);
-        _grantRole(UPGRADER_ROLE, msg.sender);
 
         certificateManager = ICertificateManager(_certificateManager);
         trustScore = ITrustScore(_trustScore);
         verificationLogger = IVerificationLogger(_verificationLogger);
     }
-
-    function _authorizeUpgrade(address) internal override onlyRole(UPGRADER_ROLE) {}
 
     function registerOrganization(
         address orgAddress,
@@ -86,15 +89,29 @@ abstract contract OrganizationLogic is
         bytes32 kycHash
     ) public nonReentrant onlyRole(ORG_ADMIN_ROLE) {
         require(orgAddress != address(0), "Invalid org address");
-        require(bytes(name).length > 0 && bytes(name).length <= 100, "Invalid name length");
         require(
-            bytes(registrationNumber).length > 0 && bytes(registrationNumber).length <= 50, "Invalid reg num length"
+            bytes(name).length > 0 && bytes(name).length <= 100,
+            "Invalid name length"
         );
-        require(bytes(country).length > 0 && bytes(country).length <= 50, "Invalid country");
+        require(
+            bytes(registrationNumber).length > 0 &&
+                bytes(registrationNumber).length <= 50,
+            "Invalid reg num length"
+        );
+        require(
+            bytes(country).length > 0 && bytes(country).length <= 50,
+            "Invalid country"
+        );
         require(bytes(email).length > 0, "Email required");
         require(kycHash != bytes32(0), "Invalid KYC hash");
-        require(organizations[orgAddress].orgAddress == address(0), "Already registered");
-        require(registrationToAddress[registrationNumber] == address(0), "Reg num used");
+        require(
+            organizations[orgAddress].orgAddress == address(0),
+            "Already registered"
+        );
+        require(
+            registrationToAddress[registrationNumber] == address(0),
+            "Reg num used"
+        );
         require(nameToAddress[name] == address(0), "Name used");
         require(!usedKycHashes[kycHash], "KYC used");
 
@@ -130,14 +147,18 @@ abstract contract OrganizationLogic is
 
         if (address(verificationLogger) != address(0)) {
             verificationLogger.logEvent(
-                "ORGANIZATION_REGISTERED", orgAddress, keccak256(abi.encodePacked(name, registrationNumber))
+                "ORGANIZATION_REGISTERED",
+                orgAddress,
+                keccak256(abi.encodePacked(name, registrationNumber))
             );
         }
 
         emit OrganizationRegistered(orgAddress, name, orgType);
     }
 
-    function approveOrganization(address orgAddress) public onlyRole(VERIFIER_ROLE) {
+    function approveOrganization(
+        address orgAddress
+    ) public onlyRole(VERIFIER_ROLE) {
         require(orgAddress != address(0), "Invalid address");
         Organization storage org = organizations[orgAddress];
         require(org.orgAddress != address(0), "Not found");
@@ -157,17 +178,27 @@ abstract contract OrganizationLogic is
         }
 
         if (address(trustScore) != address(0)) {
-            trustScore.updateScore(orgAddress, int256(MIN_ORG_TRUST_SCORE), "Approved");
+            trustScore.updateScore(
+                orgAddress,
+                int256(MIN_ORG_TRUST_SCORE),
+                "Approved"
+            );
         }
 
         if (address(verificationLogger) != address(0)) {
-            verificationLogger.logEvent("ORGANIZATION_APPROVED", orgAddress, keccak256(abi.encodePacked(org.name)));
+            verificationLogger.logEvent(
+                "ORGANIZATION_APPROVED",
+                orgAddress,
+                keccak256(abi.encodePacked(org.name))
+            );
         }
 
         emit OrganizationApproved(orgAddress, org.name);
     }
 
-    function grantIssuerRole(address orgAddress) public onlyRole(ORG_ADMIN_ROLE) {
+    function grantIssuerRole(
+        address orgAddress
+    ) public onlyRole(ORG_ADMIN_ROLE) {
         Organization storage org = organizations[orgAddress];
         require(org.status == OrganizationStatus.Active, "Not active");
         require(!org.canIssueCertificates, "Already issuer");
@@ -179,7 +210,10 @@ abstract contract OrganizationLogic is
         emit IssuerRoleGranted(orgAddress, org.name);
     }
 
-    function revokeIssuerRole(address orgAddress, string memory reason) public onlyRole(ORG_ADMIN_ROLE) {
+    function revokeIssuerRole(
+        address orgAddress,
+        string memory reason
+    ) public onlyRole(ORG_ADMIN_ROLE) {
         Organization storage org = organizations[orgAddress];
         require(org.canIssueCertificates, "Not issuer");
         org.canIssueCertificates = false;
@@ -189,7 +223,10 @@ abstract contract OrganizationLogic is
         emit IssuerRoleRevoked(orgAddress, reason);
     }
 
-    function suspendOrganization(address orgAddress, string memory reason) public onlyRole(VERIFIER_ROLE) {
+    function suspendOrganization(
+        address orgAddress,
+        string memory reason
+    ) public onlyRole(VERIFIER_ROLE) {
         Organization storage org = organizations[orgAddress];
         require(org.status == OrganizationStatus.Active, "Not active");
         org.status = OrganizationStatus.Suspended;
@@ -205,7 +242,9 @@ abstract contract OrganizationLogic is
         emit OrganizationSuspended(orgAddress, reason);
     }
 
-    function reactivateOrganization(address orgAddress) public onlyRole(VERIFIER_ROLE) {
+    function reactivateOrganization(
+        address orgAddress
+    ) public onlyRole(VERIFIER_ROLE) {
         Organization storage org = organizations[orgAddress];
         require(org.status == OrganizationStatus.Suspended, "Not suspended");
         org.status = OrganizationStatus.Active;
@@ -217,7 +256,10 @@ abstract contract OrganizationLogic is
         emit OrganizationReactivated(orgAddress);
     }
 
-    function addAccreditation(address orgAddress, AccreditationType val) public onlyRole(VERIFIER_ROLE) {
+    function addAccreditation(
+        address orgAddress,
+        AccreditationType val
+    ) public onlyRole(VERIFIER_ROLE) {
         Organization storage org = organizations[orgAddress];
         require(org.orgAddress != address(0), "Not found");
         org.accreditations.push(val);
@@ -227,7 +269,10 @@ abstract contract OrganizationLogic is
         emit AccreditationAdded(orgAddress, val);
     }
 
-    function revokeAccreditation(address orgAddress, AccreditationType val) public onlyRole(VERIFIER_ROLE) {
+    function revokeAccreditation(
+        address orgAddress,
+        AccreditationType val
+    ) public onlyRole(VERIFIER_ROLE) {
         Organization storage org = organizations[orgAddress];
         require(org.orgAddress != address(0), "Not found");
         _removeAccreditation(org, val);
@@ -237,7 +282,11 @@ abstract contract OrganizationLogic is
         emit AccreditationRevoked(orgAddress, val);
     }
 
-    function updateOrganizationInfo(string memory website, string memory email, string memory metadataUri) public {
+    function updateOrganizationInfo(
+        string memory website,
+        string memory email,
+        string memory metadataUri
+    ) public {
         Organization storage org = organizations[msg.sender];
         require(org.orgAddress != address(0), "Not registered");
         org.website = website;
@@ -247,7 +296,10 @@ abstract contract OrganizationLogic is
         emit OrganizationUpdated(msg.sender, "info");
     }
 
-    function updateCertificateStats(address orgAddress, bool isRevocation) public {
+    function updateCertificateStats(
+        address orgAddress,
+        bool isRevocation
+    ) public {
         require(msg.sender == address(certificateManager), "Not cert manager");
         Organization storage org = organizations[orgAddress];
         require(org.orgAddress != address(0), "Not found");
@@ -279,7 +331,10 @@ abstract contract OrganizationLogic is
         require(found, "Target not found in array");
     }
 
-    function _removeAccreditation(Organization storage org, AccreditationType val) internal {
+    function _removeAccreditation(
+        Organization storage org,
+        AccreditationType val
+    ) internal {
         uint256 len = org.accreditations.length;
         for (uint256 i = 0; i < len; i++) {
             if (org.accreditations[i] == val) {
@@ -290,7 +345,9 @@ abstract contract OrganizationLogic is
         }
     }
 
-    function _getAccreditationScore(AccreditationType accType) private pure returns (int256) {
+    function _getAccreditationScore(
+        AccreditationType accType
+    ) private pure returns (int256) {
         if (accType == AccreditationType.International) return 50;
         if (accType == AccreditationType.National) return 40;
         if (accType == AccreditationType.Government) return 35;

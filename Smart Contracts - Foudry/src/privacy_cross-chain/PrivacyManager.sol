@@ -1,24 +1,31 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 interface IVerificationLogger {
-    function logEvent(string memory eventType, address user, bytes32 dataHash) external;
+    function logEvent(
+        string memory eventType,
+        address user,
+        bytes32 dataHash
+    ) external;
 }
 
 interface IUserIdentityRegistry {
-    function updateIdentityCommitment(address user, bytes32 newCommitment) external;
+    function updateIdentityCommitment(
+        address user,
+        bytes32 newCommitment
+    ) external;
 
     function deregisterIdentity(address user) external;
 }
 
-contract PrivacyManager is Initializable, AccessControlUpgradeable, UUPSUpgradeable {
-    bytes32 public constant PRIVACY_OFFICER_ROLE = keccak256("PRIVACY_OFFICER_ROLE");
-    bytes32 public constant DATA_PROCESSOR_ROLE = keccak256("DATA_PROCESSOR_ROLE");
-    bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
+contract PrivacyManager is AccessControl, ReentrancyGuard {
+    bytes32 public constant PRIVACY_OFFICER_ROLE =
+        keccak256("PRIVACY_OFFICER_ROLE");
+    bytes32 public constant DATA_PROCESSOR_ROLE =
+        keccak256("DATA_PROCESSOR_ROLE");
 
     enum ConsentType {
         DataProcessing, // Basic data processing consent
@@ -27,7 +34,6 @@ contract PrivacyManager is Initializable, AccessControlUpgradeable, UUPSUpgradea
         ThirdPartySharing, // Sharing with third parties
         Research, // Research purposes
         LawEnforcement // Law enforcement requests
-
     }
 
     enum DataRetentionPeriod {
@@ -36,7 +42,6 @@ contract PrivacyManager is Initializable, AccessControlUpgradeable, UUPSUpgradea
         FiveYears, // 5 years
         TenYears, // 10 years
         Indefinite // Until user requests deletion
-
     }
 
     enum RequestStatus {
@@ -45,7 +50,6 @@ contract PrivacyManager is Initializable, AccessControlUpgradeable, UUPSUpgradea
         Completed, // Successfully completed
         Rejected, // Request rejected
         PartiallyFulfilled // Partially completed
-
     }
 
     struct ConsentRecord {
@@ -106,7 +110,8 @@ contract PrivacyManager is Initializable, AccessControlUpgradeable, UUPSUpgradea
         bool isRevoked;
     }
 
-    mapping(address => mapping(ConsentType => ConsentRecord)) public userConsents;
+    mapping(address => mapping(ConsentType => ConsentRecord))
+        public userConsents;
     mapping(address => DataRetentionPolicy) public userRetentionPolicies;
     mapping(uint256 => PrivacyRequest) public privacyRequests;
     mapping(address => uint256[]) public userPrivacyRequests;
@@ -129,43 +134,64 @@ contract PrivacyManager is Initializable, AccessControlUpgradeable, UUPSUpgradea
     mapping(address => uint256) public dataAccessCount;
     mapping(address => uint256) public lastDataAccess;
 
-    event ConsentUpdated(address indexed user, ConsentType consentType, bool isConsented);
+    event ConsentUpdated(
+        address indexed user,
+        ConsentType consentType,
+        bool isConsented
+    );
     event ConsentWithdrawn(address indexed user, ConsentType consentType);
-    event PrivacyRequestCreated(uint256 indexed requestId, address indexed requester, string requestType);
-    event PrivacyRequestProcessed(uint256 indexed requestId, RequestStatus status);
-    event DataDisclosed(address indexed user, address indexed recipient, string purpose);
+    event PrivacyRequestCreated(
+        uint256 indexed requestId,
+        address indexed requester,
+        string requestType
+    );
+    event PrivacyRequestProcessed(
+        uint256 indexed requestId,
+        RequestStatus status
+    );
+    event DataDisclosed(
+        address indexed user,
+        address indexed recipient,
+        string purpose
+    );
     event DataErased(address indexed user, string dataType);
-    event ZKProofRequested(bytes32 indexed proofId, address indexed requester, string proofType);
+    event ZKProofRequested(
+        bytes32 indexed proofId,
+        address indexed requester,
+        string proofType
+    );
     event ZKProofGenerated(bytes32 indexed proofId, bytes32 proofHash);
-    event RetentionPolicyUpdated(address indexed user, DataRetentionPeriod period);
-    event DataAccessLogged(address indexed user, address indexed accessor, string dataType);
+    event RetentionPolicyUpdated(
+        address indexed user,
+        DataRetentionPeriod period
+    );
+    event DataAccessLogged(
+        address indexed user,
+        address indexed accessor,
+        string dataType
+    );
 
-    /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
-        _disableInitializers();
-    }
-
-    function initialize(address _verificationLogger, address _userRegistry) public initializer {
-        require(_verificationLogger != address(0), "Invalid verification logger address");
+    constructor(address _verificationLogger, address _userRegistry) {
+        require(
+            _verificationLogger != address(0),
+            "Invalid verification logger address"
+        );
         require(_userRegistry != address(0), "Invalid user registry address");
-
-        __AccessControl_init();
-        __UUPSUpgradeable_init();
 
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(PRIVACY_OFFICER_ROLE, msg.sender);
         _grantRole(DATA_PROCESSOR_ROLE, msg.sender);
-        _grantRole(UPGRADER_ROLE, msg.sender);
 
         verificationLogger = IVerificationLogger(_verificationLogger);
         userRegistry = IUserIdentityRegistry(_userRegistry);
     }
 
-    function _authorizeUpgrade(address newImplementation) internal override onlyRole(UPGRADER_ROLE) {}
-
-    function updateConsent(ConsentType consentType, bool isConsented, string memory consentVersion, bytes32 consentHash)
-        external
-    {
+    function updateConsent(
+        ConsentType consentType,
+        bool isConsented,
+        string memory consentVersion,
+        bytes32 consentHash
+    ) external {
         ConsentRecord storage consent = userConsents[msg.sender][consentType];
 
         consent.isConsented = isConsented;
@@ -209,9 +235,11 @@ contract PrivacyManager is Initializable, AccessControlUpgradeable, UUPSUpgradea
 
         bytes32 requestTypeHash = keccak256(bytes(requestType));
         require(
-            requestTypeHash == keccak256("access") || requestTypeHash == keccak256("portability")
-                || requestTypeHash == keccak256("erasure") || requestTypeHash == keccak256("rectification")
-                || requestTypeHash == keccak256("restriction"),
+            requestTypeHash == keccak256("access") ||
+                requestTypeHash == keccak256("portability") ||
+                requestTypeHash == keccak256("erasure") ||
+                requestTypeHash == keccak256("rectification") ||
+                requestTypeHash == keccak256("restriction"),
             "Invalid request type"
         );
 
@@ -241,13 +269,22 @@ contract PrivacyManager is Initializable, AccessControlUpgradeable, UUPSUpgradea
             processor: address(0),
             processedAt: 0,
             isUrgent: isUrgent,
-            requestHash: keccak256(abi.encodePacked(requestId, msg.sender, requestType, description))
+            requestHash: keccak256(
+                abi.encodePacked(
+                    requestId,
+                    msg.sender,
+                    requestType,
+                    description
+                )
+            )
         });
 
         userPrivacyRequests[msg.sender].push(requestId);
 
         verificationLogger.logEvent(
-            "PRIVACY_REQUEST_CREATED", msg.sender, keccak256(abi.encodePacked(requestId, requestType, isUrgent))
+            "PRIVACY_REQUEST_CREATED",
+            msg.sender,
+            keccak256(abi.encodePacked(requestId, requestType, isUrgent))
         );
 
         emit PrivacyRequestCreated(requestId, msg.sender, requestType);
@@ -262,7 +299,11 @@ contract PrivacyManager is Initializable, AccessControlUpgradeable, UUPSUpgradea
     ) external onlyRole(DATA_PROCESSOR_ROLE) {
         PrivacyRequest storage request = privacyRequests[requestId];
         require(request.id != 0, "Request does not exist");
-        require(request.status == RequestStatus.Pending || request.status == RequestStatus.Processing, "Cannot process");
+        require(
+            request.status == RequestStatus.Pending ||
+                request.status == RequestStatus.Processing,
+            "Cannot process"
+        );
 
         request.status = status;
         request.responseURI = responseURI;
@@ -276,13 +317,18 @@ contract PrivacyManager is Initializable, AccessControlUpgradeable, UUPSUpgradea
         }
 
         verificationLogger.logEvent(
-            "PRIVACY_REQUEST_PROCESSED", request.requester, keccak256(abi.encodePacked(requestId, uint256(status)))
+            "PRIVACY_REQUEST_PROCESSED",
+            request.requester,
+            keccak256(abi.encodePacked(requestId, uint256(status)))
         );
 
         emit PrivacyRequestProcessed(requestId, status);
     }
 
-    function setDataRetentionPolicy(DataRetentionPeriod period, string memory description) external {
+    function setDataRetentionPolicy(
+        DataRetentionPeriod period,
+        string memory description
+    ) external {
         uint256 expiryDate = _calculateExpiryDate(period);
 
         userRetentionPolicies[msg.sender] = DataRetentionPolicy({
@@ -290,11 +336,15 @@ contract PrivacyManager is Initializable, AccessControlUpgradeable, UUPSUpgradea
             expiryDate: expiryDate,
             isActive: true,
             description: description,
-            policyHash: keccak256(abi.encodePacked(uint256(period), description, block.timestamp))
+            policyHash: keccak256(
+                abi.encodePacked(uint256(period), description, block.timestamp)
+            )
         });
 
         verificationLogger.logEvent(
-            "RETENTION_POLICY_SET", msg.sender, keccak256(abi.encodePacked(uint256(period), expiryDate))
+            "RETENTION_POLICY_SET",
+            msg.sender,
+            keccak256(abi.encodePacked(uint256(period), expiryDate))
         );
 
         emit RetentionPolicyUpdated(msg.sender, period);
@@ -308,9 +358,15 @@ contract PrivacyManager is Initializable, AccessControlUpgradeable, UUPSUpgradea
         uint256 validityPeriod,
         string memory legalBasis
     ) external onlyRole(DATA_PROCESSOR_ROLE) {
-        require(user != address(0) && recipient != address(0), "Invalid addresses");
+        require(
+            user != address(0) && recipient != address(0),
+            "Invalid addresses"
+        );
         require(dataFields.length > 0, "Data fields required");
-        require(_hasConsentForDisclosure(user, purpose), "No consent for disclosure");
+        require(
+            _hasConsentForDisclosure(user, purpose),
+            "No consent for disclosure"
+        );
 
         DataDisclosure memory disclosure = DataDisclosure({
             user: user,
@@ -320,26 +376,42 @@ contract PrivacyManager is Initializable, AccessControlUpgradeable, UUPSUpgradea
             disclosedAt: block.timestamp,
             expiresAt: block.timestamp + validityPeriod,
             isActive: true,
-            disclosureHash: keccak256(abi.encodePacked(user, recipient, purpose, block.timestamp)),
+            disclosureHash: keccak256(
+                abi.encodePacked(user, recipient, purpose, block.timestamp)
+            ),
             legalBasis: legalBasis
         });
 
         userDataDisclosures[user].push(disclosure);
 
-        verificationLogger.logEvent("DATA_DISCLOSED", user, keccak256(abi.encodePacked(recipient, purpose)));
+        verificationLogger.logEvent(
+            "DATA_DISCLOSED",
+            user,
+            keccak256(abi.encodePacked(recipient, purpose))
+        );
 
         emit DataDisclosed(user, recipient, purpose);
     }
 
-    function requestZKProof(address user, string memory proofType, bytes32 criteriaHash, uint256 validityPeriod)
-        external
-        returns (bytes32)
-    {
+    function requestZKProof(
+        address user,
+        string memory proofType,
+        bytes32 criteriaHash,
+        uint256 validityPeriod
+    ) external returns (bytes32) {
         require(user != address(0), "Invalid user");
         require(bytes(proofType).length > 0, "Proof type required");
         require(_hasConsentForZKProof(user), "No consent for ZK proof");
 
-        bytes32 proofId = keccak256(abi.encodePacked(user, msg.sender, proofType, criteriaHash, block.timestamp));
+        bytes32 proofId = keccak256(
+            abi.encodePacked(
+                user,
+                msg.sender,
+                proofType,
+                criteriaHash,
+                block.timestamp
+            )
+        );
 
         zkProofRequests[proofId] = ZKProofRequest({
             requester: msg.sender,
@@ -354,7 +426,11 @@ contract PrivacyManager is Initializable, AccessControlUpgradeable, UUPSUpgradea
 
         userZKProofs[user].push(proofId);
 
-        verificationLogger.logEvent("ZK_PROOF_REQUESTED", user, keccak256(abi.encodePacked(proofId, proofType)));
+        verificationLogger.logEvent(
+            "ZK_PROOF_REQUESTED",
+            user,
+            keccak256(abi.encodePacked(proofId, proofType))
+        );
 
         emit ZKProofRequested(proofId, msg.sender, proofType);
         return proofId;
@@ -362,34 +438,55 @@ contract PrivacyManager is Initializable, AccessControlUpgradeable, UUPSUpgradea
 
     function generateZKProof(bytes32 proofId, bytes32 proofHash) external {
         ZKProofRequest storage request = zkProofRequests[proofId];
-        require(request.requester != address(0), "Proof request does not exist");
+        require(
+            request.requester != address(0),
+            "Proof request does not exist"
+        );
         require(block.timestamp <= request.expiresAt, "Proof request expired");
         require(!request.isCompleted, "Proof already generated");
 
         request.isCompleted = true;
         request.proofHash = proofHash;
 
-        verificationLogger.logEvent("ZK_PROOF_GENERATED", msg.sender, keccak256(abi.encodePacked(proofId, proofHash)));
+        verificationLogger.logEvent(
+            "ZK_PROOF_GENERATED",
+            msg.sender,
+            keccak256(abi.encodePacked(proofId, proofHash))
+        );
 
         emit ZKProofGenerated(proofId, proofHash);
     }
 
     function revokeZKProof(bytes32 proofId) external {
         ZKProofRequest storage request = zkProofRequests[proofId];
-        require(request.requester != address(0), "Proof request does not exist");
+        require(
+            request.requester != address(0),
+            "Proof request does not exist"
+        );
         require(request.isCompleted, "Proof not completed");
         require(!request.isRevoked, "Proof already revoked");
 
         request.isRevoked = true;
 
-        verificationLogger.logEvent("ZK_PROOF_REVOKED", msg.sender, keccak256(abi.encodePacked(proofId)));
+        verificationLogger.logEvent(
+            "ZK_PROOF_REVOKED",
+            msg.sender,
+            keccak256(abi.encodePacked(proofId))
+        );
     }
 
-    function logDataAccess(address user, string memory dataType) external onlyRole(DATA_PROCESSOR_ROLE) {
+    function logDataAccess(
+        address user,
+        string memory dataType
+    ) external onlyRole(DATA_PROCESSOR_ROLE) {
         dataAccessCount[user]++;
         lastDataAccess[user] = block.timestamp;
 
-        verificationLogger.logEvent("DATA_ACCESSED", user, keccak256(abi.encodePacked(msg.sender, dataType)));
+        verificationLogger.logEvent(
+            "DATA_ACCESSED",
+            user,
+            keccak256(abi.encodePacked(msg.sender, dataType))
+        );
 
         emit DataAccessLogged(user, msg.sender, dataType);
     }
@@ -397,25 +494,39 @@ contract PrivacyManager is Initializable, AccessControlUpgradeable, UUPSUpgradea
     function enableDataMinimization() external {
         dataMinimizationEnabled[msg.sender] = true;
 
-        verificationLogger.logEvent("DATA_MINIMIZATION_ENABLED", msg.sender, bytes32(0));
+        verificationLogger.logEvent(
+            "DATA_MINIMIZATION_ENABLED",
+            msg.sender,
+            bytes32(0)
+        );
     }
 
     function enablePseudonymization() external {
         pseudonymizationEnabled[msg.sender] = true;
 
-        verificationLogger.logEvent("PSEUDONYMIZATION_ENABLED", msg.sender, bytes32(0));
+        verificationLogger.logEvent(
+            "PSEUDONYMIZATION_ENABLED",
+            msg.sender,
+            bytes32(0)
+        );
     }
 
-    function setJurisdiction(address user, string memory jurisdiction) external onlyRole(PRIVACY_OFFICER_ROLE) {
+    function setJurisdiction(
+        address user,
+        string memory jurisdiction
+    ) external onlyRole(PRIVACY_OFFICER_ROLE) {
         userJurisdiction[user] = jurisdiction;
 
         bytes32 jurisdictionHash = keccak256(bytes(jurisdiction));
-        gdprApplicable[user] = (
-            jurisdictionHash == keccak256("EU") || jurisdictionHash == keccak256("EEA")
-                || jurisdictionHash == keccak256("UK")
-        );
+        gdprApplicable[user] = (jurisdictionHash == keccak256("EU") ||
+            jurisdictionHash == keccak256("EEA") ||
+            jurisdictionHash == keccak256("UK"));
 
-        verificationLogger.logEvent("JURISDICTION_SET", user, keccak256(bytes(jurisdiction)));
+        verificationLogger.logEvent(
+            "JURISDICTION_SET",
+            user,
+            keccak256(bytes(jurisdiction))
+        );
     }
 
     function checkDataRetentionExpiry(address[] memory users) external {
@@ -423,7 +534,11 @@ contract PrivacyManager is Initializable, AccessControlUpgradeable, UUPSUpgradea
             address user = users[i];
             DataRetentionPolicy memory policy = userRetentionPolicies[user];
 
-            if (policy.isActive && policy.expiryDate > 0 && block.timestamp > policy.expiryDate) {
+            if (
+                policy.isActive &&
+                policy.expiryDate > 0 &&
+                block.timestamp > policy.expiryDate
+            ) {
                 // Auto-create erasure request
                 requestCounter++;
                 uint256 requestId = requestCounter;
@@ -442,7 +557,9 @@ contract PrivacyManager is Initializable, AccessControlUpgradeable, UUPSUpgradea
                     processor: address(0),
                     processedAt: 0,
                     isUrgent: true,
-                    requestHash: keccak256(abi.encodePacked(requestId, user, "auto_erasure"))
+                    requestHash: keccak256(
+                        abi.encodePacked(requestId, user, "auto_erasure")
+                    )
                 });
 
                 userPrivacyRequests[user].push(requestId);
@@ -451,12 +568,17 @@ contract PrivacyManager is Initializable, AccessControlUpgradeable, UUPSUpgradea
         }
     }
 
-    function hasConsent(address user, ConsentType consentType) external view returns (bool) {
+    function hasConsent(
+        address user,
+        ConsentType consentType
+    ) external view returns (bool) {
         ConsentRecord memory consent = userConsents[user][consentType];
         return consent.isConsented && !consent.isWithdrawn;
     }
 
-    function getPrivacyRequest(uint256 requestId)
+    function getPrivacyRequest(
+        uint256 requestId
+    )
         external
         view
         returns (
@@ -479,20 +601,29 @@ contract PrivacyManager is Initializable, AccessControlUpgradeable, UUPSUpgradea
         );
     }
 
-    function getUserDataDisclosures(address user) external view returns (uint256) {
+    function getUserDataDisclosures(
+        address user
+    ) external view returns (uint256) {
         return userDataDisclosures[user].length;
     }
 
-    function getUserZKProofs(address user) external view returns (bytes32[] memory) {
+    function getUserZKProofs(
+        address user
+    ) external view returns (bytes32[] memory) {
         return userZKProofs[user];
     }
 
     function isZKProofValid(bytes32 proofId) external view returns (bool) {
         ZKProofRequest memory request = zkProofRequests[proofId];
-        return request.isCompleted && !request.isRevoked && block.timestamp <= request.expiresAt;
+        return
+            request.isCompleted &&
+            !request.isRevoked &&
+            block.timestamp <= request.expiresAt;
     }
 
-    function getUserPrivacyRequests(address user) external view returns (uint256[] memory) {
+    function getUserPrivacyRequests(
+        address user
+    ) external view returns (uint256[] memory) {
         return userPrivacyRequests[user];
     }
 
@@ -512,7 +643,9 @@ contract PrivacyManager is Initializable, AccessControlUpgradeable, UUPSUpgradea
 
     function _executeDataErasure(address user) private {
         // Update identity commitment to nullify old data
-        bytes32 newCommitment = keccak256(abi.encodePacked("ERASED", user, block.timestamp));
+        bytes32 newCommitment = keccak256(
+            abi.encodePacked("ERASED", user, block.timestamp)
+        );
         userRegistry.updateIdentityCommitment(user, newCommitment);
 
         // Reset privacy settings
@@ -520,12 +653,19 @@ contract PrivacyManager is Initializable, AccessControlUpgradeable, UUPSUpgradea
         dataMinimizationEnabled[user] = true;
         pseudonymizationEnabled[user] = true;
 
-        verificationLogger.logEvent("DATA_ERASED", user, keccak256(abi.encodePacked("user_data_erasure")));
+        verificationLogger.logEvent(
+            "DATA_ERASED",
+            user,
+            keccak256(abi.encodePacked("user_data_erasure"))
+        );
 
         emit DataErased(user, "user_data");
     }
 
-    function _hasConsentForDisclosure(address user, string memory purpose) private view returns (bool) {
+    function _hasConsentForDisclosure(
+        address user,
+        string memory purpose
+    ) private view returns (bool) {
         bytes32 purposeHash = keccak256(bytes(purpose));
 
         if (purposeHash == keccak256("marketing")) {
@@ -543,7 +683,9 @@ contract PrivacyManager is Initializable, AccessControlUpgradeable, UUPSUpgradea
         return this.hasConsent(user, ConsentType.DataProcessing);
     }
 
-    function _calculateExpiryDate(DataRetentionPeriod period) private view returns (uint256) {
+    function _calculateExpiryDate(
+        DataRetentionPeriod period
+    ) private view returns (uint256) {
         if (period == DataRetentionPeriod.OneYear) {
             return block.timestamp + 365 days;
         }

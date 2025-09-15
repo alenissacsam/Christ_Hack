@@ -1,17 +1,23 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 interface IVerificationLogger {
-    function logEvent(string memory eventType, address user, bytes32 dataHash) external;
+    function logEvent(
+        string memory eventType,
+        address user,
+        bytes32 dataHash
+    ) external;
 }
 
 interface IUserIdentityRegistry {
-    function updateVerificationStatus(address user, string memory verificationType, bool status) external;
+    function updateVerificationStatus(
+        address user,
+        string memory verificationType,
+        bool status
+    ) external;
 
     function isRegistered(address user) external view returns (bool);
 
@@ -19,18 +25,16 @@ interface IUserIdentityRegistry {
 }
 
 interface ITrustScore {
-    function updateScore(address user, int256 delta, string memory reason) external;
+    function updateScore(
+        address user,
+        int256 delta,
+        string memory reason
+    ) external;
 }
 
-contract FaceVerificationManager is
-    Initializable,
-    AccessControlUpgradeable,
-    ReentrancyGuardUpgradeable,
-    UUPSUpgradeable
-{
+contract FaceVerificationManager is AccessControl, ReentrancyGuard {
     bytes32 public constant VERIFIER_ROLE = keccak256("VERIFIER_ROLE");
     bytes32 public constant ORACLE_ROLE = keccak256("ORACLE_ROLE");
-    bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
 
     struct FaceVerification {
         address user;
@@ -57,46 +61,60 @@ contract FaceVerificationManager is
     uint256 public constant RETRY_COOLDOWN = 1 hours;
     uint256 public constant MAX_FAILED_ATTEMPTS = 5;
 
-    event FaceVerificationRequested(address indexed user, bytes32 faceHashCommitment);
-    event FaceVerificationCompleted(address indexed user, bool success, string provider);
+    event FaceVerificationRequested(
+        address indexed user,
+        bytes32 faceHashCommitment
+    );
+    event FaceVerificationCompleted(
+        address indexed user,
+        bool success,
+        string provider
+    );
     event FaceVerificationRevoked(address indexed user, string reason);
     event RetryAttempt(address indexed user, uint256 attemptNumber);
 
-    /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
-        _disableInitializers();
-    }
-
-    function initialize(address _verificationLogger, address _userRegistry, address _trustScore) public initializer {
-        __AccessControl_init();
-        __ReentrancyGuard_init();
-        __UUPSUpgradeable_init();
-
+    constructor(
+        address _verificationLogger,
+        address _userRegistry,
+        address _trustScore
+    ) {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(VERIFIER_ROLE, msg.sender);
         _grantRole(ORACLE_ROLE, msg.sender);
-        _grantRole(UPGRADER_ROLE, msg.sender);
 
         verificationLogger = IVerificationLogger(_verificationLogger);
         userRegistry = IUserIdentityRegistry(_userRegistry);
         trustScore = ITrustScore(_trustScore);
     }
 
-    function _authorizeUpgrade(address newImplementation) internal override onlyRole(UPGRADER_ROLE) {}
-
-    function requestFaceVerification(bytes32 faceHashCommitment, bytes32 livenessProof) external nonReentrant {
+    function requestFaceVerification(
+        bytes32 faceHashCommitment,
+        bytes32 livenessProof
+    ) external nonReentrant {
         require(userRegistry.isRegistered(msg.sender), "User not registered");
-        require(!userRegistry.isIdentityLocked(msg.sender), "Identity is locked");
-        require(!faceVerifications[msg.sender].isActive, "Face verification already active");
+        require(
+            !userRegistry.isIdentityLocked(msg.sender),
+            "Identity is locked"
+        );
+        require(
+            !faceVerifications[msg.sender].isActive,
+            "Face verification already active"
+        );
         require(!usedFaceHashes[faceHashCommitment], "Face hash already used");
         require(faceHashCommitment != bytes32(0), "Invalid face hash");
         require(livenessProof != bytes32(0), "Invalid liveness proof");
-        require(failedAttempts[msg.sender] < MAX_FAILED_ATTEMPTS, "Too many failed attempts");
+        require(
+            failedAttempts[msg.sender] < MAX_FAILED_ATTEMPTS,
+            "Too many failed attempts"
+        );
 
         // Check retry cooldown
         FaceVerification storage existing = faceVerifications[msg.sender];
         if (existing.retryCount > 0) {
-            require(block.timestamp >= existing.lastRetry + RETRY_COOLDOWN, "Retry cooldown not expired");
+            require(
+                block.timestamp >= existing.lastRetry + RETRY_COOLDOWN,
+                "Retry cooldown not expired"
+            );
         }
 
         faceVerifications[msg.sender] = FaceVerification({
@@ -113,7 +131,11 @@ contract FaceVerificationManager is
 
         usedFaceHashes[faceHashCommitment] = true;
 
-        verificationLogger.logEvent("FACE_VERIFICATION_REQUESTED", msg.sender, faceHashCommitment);
+        verificationLogger.logEvent(
+            "FACE_VERIFICATION_REQUESTED",
+            msg.sender,
+            faceHashCommitment
+        );
 
         emit FaceVerificationRequested(msg.sender, faceHashCommitment);
 
@@ -129,13 +151,23 @@ contract FaceVerificationManager is
         bytes memory oracleSignature
     ) public onlyRole(ORACLE_ROLE) {
         require(user != address(0), "Invalid user address");
-        require(faceVerifications[user].isActive, "No active face verification");
         require(
-            bytes(verificationProvider).length > 0 && bytes(verificationProvider).length <= 50,
+            faceVerifications[user].isActive,
+            "No active face verification"
+        );
+        require(
+            bytes(verificationProvider).length > 0 &&
+                bytes(verificationProvider).length <= 50,
             "Invalid provider length"
         );
         require(
-            _verifyOracleSignature(user, success, verificationProvider, oracleSignature), "Invalid oracle signature"
+            _verifyOracleSignature(
+                user,
+                success,
+                verificationProvider,
+                oracleSignature
+            ),
+            "Invalid oracle signature"
         );
 
         FaceVerification storage verification = faceVerifications[user];
@@ -145,7 +177,11 @@ contract FaceVerificationManager is
 
         if (success) {
             userRegistry.updateVerificationStatus(user, "face", true);
-            trustScore.updateScore(user, int256(FACE_VERIFICATION_SCORE), "Face verification completed");
+            trustScore.updateScore(
+                user,
+                int256(FACE_VERIFICATION_SCORE),
+                "Face verification completed"
+            );
 
             // Reset failed attempts on success
             failedAttempts[user] = 0;
@@ -170,24 +206,41 @@ contract FaceVerificationManager is
         emit FaceVerificationCompleted(user, success, verificationProvider);
     }
 
-    function revokeFaceVerification(address user, string memory reason) external onlyRole(VERIFIER_ROLE) {
+    function revokeFaceVerification(
+        address user,
+        string memory reason
+    ) external onlyRole(VERIFIER_ROLE) {
         require(faceVerifications[user].isVerified, "Face not verified");
 
         faceVerifications[user].isVerified = false;
         faceVerifications[user].isActive = false;
 
         userRegistry.updateVerificationStatus(user, "face", false);
-        trustScore.updateScore(user, -int256(FACE_VERIFICATION_SCORE), "Face verification revoked");
+        trustScore.updateScore(
+            user,
+            -int256(FACE_VERIFICATION_SCORE),
+            "Face verification revoked"
+        );
 
-        verificationLogger.logEvent("FACE_VERIFICATION_REVOKED", user, keccak256(bytes(reason)));
+        verificationLogger.logEvent(
+            "FACE_VERIFICATION_REVOKED",
+            user,
+            keccak256(bytes(reason))
+        );
 
         emit FaceVerificationRevoked(user, reason);
     }
 
-    function resetFailedAttempts(address user) external onlyRole(VERIFIER_ROLE) {
+    function resetFailedAttempts(
+        address user
+    ) external onlyRole(VERIFIER_ROLE) {
         failedAttempts[user] = 0;
 
-        verificationLogger.logEvent("FACE_VERIFICATION_ATTEMPTS_RESET", user, bytes32(0));
+        verificationLogger.logEvent(
+            "FACE_VERIFICATION_ATTEMPTS_RESET",
+            user,
+            bytes32(0)
+        );
     }
 
     function bulkCompleteFaceVerification(
@@ -197,23 +250,33 @@ contract FaceVerificationManager is
         bytes[] memory signatures
     ) external onlyRole(ORACLE_ROLE) {
         require(
-            users.length == successes.length && successes.length == providers.length
-                && providers.length == signatures.length,
+            users.length == successes.length &&
+                successes.length == providers.length &&
+                providers.length == signatures.length,
             "Array lengths must match"
         );
 
         for (uint256 i = 0; i < users.length; i++) {
             if (faceVerifications[users[i]].isActive) {
-                completeFaceVerification(users[i], successes[i], providers[i], signatures[i]);
+                completeFaceVerification(
+                    users[i],
+                    successes[i],
+                    providers[i],
+                    signatures[i]
+                );
             }
         }
     }
 
     function isFaceVerified(address user) external view returns (bool) {
-        return faceVerifications[user].isVerified && faceVerifications[user].isActive;
+        return
+            faceVerifications[user].isVerified &&
+            faceVerifications[user].isActive;
     }
 
-    function getFaceVerificationInfo(address user)
+    function getFaceVerificationInfo(
+        address user
+    )
         external
         view
         returns (
@@ -265,11 +328,12 @@ contract FaceVerificationManager is
         return (0, 0, 0, 0);
     }
 
-    function _verifyOracleSignature(address user, bool, /* success */ string memory provider, bytes memory signature)
-        private
-        pure
-        returns (bool)
-    {
+    function _verifyOracleSignature(
+        address user,
+        bool,
+        /* success */ string memory provider,
+        bytes memory signature
+    ) private pure returns (bool) {
         // Enhanced signature verification - in production use proper ECDSA verification
         // This should verify that the oracle signed the (user, success, provider) data
         require(signature.length >= 65, "Invalid signature length"); // Standard ECDSA signature length

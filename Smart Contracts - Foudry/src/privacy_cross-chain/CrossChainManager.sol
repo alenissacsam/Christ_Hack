@@ -1,19 +1,25 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 interface IVerificationLogger {
-    function logEvent(string memory eventType, address user, bytes32 dataHash) external;
+    function logEvent(
+        string memory eventType,
+        address user,
+        bytes32 dataHash
+    ) external;
 }
 
 interface ICertificateManager {
-    function getCertificatesByHolder(address holder) external view returns (uint256[] memory);
+    function getCertificatesByHolder(
+        address holder
+    ) external view returns (uint256[] memory);
 
-    function verifyCertificate(uint256 certificateId) external view returns (bool);
+    function verifyCertificate(
+        uint256 certificateId
+    ) external view returns (bool);
 }
 
 interface ILayerZeroEndpoint {
@@ -36,10 +42,9 @@ interface ILayerZeroEndpoint {
     ) external;
 }
 
-contract CrossChainManager is Initializable, AccessControlUpgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable {
+contract CrossChainManager is AccessControl, ReentrancyGuard {
     bytes32 public constant BRIDGE_ADMIN_ROLE = keccak256("BRIDGE_ADMIN_ROLE");
     bytes32 public constant RELAYER_ROLE = keccak256("RELAYER_ROLE");
-    bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
 
     enum MessageType {
         CertificateSync, // Sync certificate data
@@ -47,7 +52,6 @@ contract CrossChainManager is Initializable, AccessControlUpgradeable, Reentranc
         IdentitySync, // Sync identity updates
         BadgeSync, // Sync badge awards
         GovernanceSync // Sync governance decisions
-
     }
 
     enum BridgeStatus {
@@ -114,38 +118,57 @@ contract CrossChainManager is Initializable, AccessControlUpgradeable, Reentranc
     bool public emergencyPauseEnabled;
 
     event CrossChainMessageSent(
-        uint256 indexed messageId, uint16 indexed dstChainId, MessageType msgType, bytes32 payloadHash
+        uint256 indexed messageId,
+        uint16 indexed dstChainId,
+        MessageType msgType,
+        bytes32 payloadHash
     );
     event CrossChainMessageReceived(
-        uint256 indexed messageId, uint16 indexed srcChainId, MessageType msgType, bool success
+        uint256 indexed messageId,
+        uint16 indexed srcChainId,
+        MessageType msgType,
+        bool success
     );
-    event CertificateSynced(address indexed holder, uint256 indexed certId, uint16 indexed originChainId);
-    event ChainConfigured(uint16 indexed chainId, string chainName, BridgeStatus status);
-    event BridgeStatusUpdated(uint16 indexed chainId, BridgeStatus oldStatus, BridgeStatus newStatus);
-    event TrustScoreSynced(address indexed user, uint256 trustScore, uint16 indexed fromChainId);
+    event CertificateSynced(
+        address indexed holder,
+        uint256 indexed certId,
+        uint16 indexed originChainId
+    );
+    event ChainConfigured(
+        uint16 indexed chainId,
+        string chainName,
+        BridgeStatus status
+    );
+    event BridgeStatusUpdated(
+        uint16 indexed chainId,
+        BridgeStatus oldStatus,
+        BridgeStatus newStatus
+    );
+    event TrustScoreSynced(
+        address indexed user,
+        uint256 trustScore,
+        uint16 indexed fromChainId
+    );
     event CrossChainError(uint256 indexed messageId, string error);
 
-    /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
-        _disableInitializers();
-    }
-
-    function initialize(address _verificationLogger, address _certificateManager, address _layerZeroEndpoint)
-        public
-        initializer
-    {
-        require(_verificationLogger != address(0), "Invalid verification logger");
-        require(_certificateManager != address(0), "Invalid certificate manager");
+    constructor(
+        address _verificationLogger,
+        address _certificateManager,
+        address _layerZeroEndpoint
+    ) {
+        require(
+            _verificationLogger != address(0),
+            "Invalid verification logger"
+        );
+        require(
+            _certificateManager != address(0),
+            "Invalid certificate manager"
+        );
         require(_layerZeroEndpoint != address(0), "Invalid LayerZero endpoint");
-
-        __AccessControl_init();
-        __ReentrancyGuard_init();
-        __UUPSUpgradeable_init();
 
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(BRIDGE_ADMIN_ROLE, msg.sender);
         _grantRole(RELAYER_ROLE, msg.sender);
-        _grantRole(UPGRADER_ROLE, msg.sender);
 
         verificationLogger = IVerificationLogger(_verificationLogger);
         certificateManager = ICertificateManager(_certificateManager);
@@ -158,19 +181,20 @@ contract CrossChainManager is Initializable, AccessControlUpgradeable, Reentranc
         _initializeSupportedChains();
     }
 
-    function _authorizeUpgrade(address newImplementation) internal override onlyRole(UPGRADER_ROLE) {}
-
-    function sendCrossChainMessage(uint16 dstChainId, MessageType msgType, address recipient, bytes memory payload)
-        public
-        payable
-        nonReentrant
-        returns (uint256)
-    {
+    function sendCrossChainMessage(
+        uint16 dstChainId,
+        MessageType msgType,
+        address recipient,
+        bytes memory payload
+    ) public payable nonReentrant returns (uint256) {
         require(payload.length > 0, "Empty payload");
         require(recipient != address(0), "Invalid recipient");
         require(!emergencyPauseEnabled, "Bridge paused");
         require(supportedChains[dstChainId].isActive, "Chain not supported");
-        require(supportedChains[dstChainId].status == BridgeStatus.Active, "Bridge not active");
+        require(
+            supportedChains[dstChainId].status == BridgeStatus.Active,
+            "Bridge not active"
+        );
         require(msg.value >= bridgeFee, "Insufficient bridge fee");
 
         messageCounter++;
@@ -197,26 +221,45 @@ contract CrossChainManager is Initializable, AccessControlUpgradeable, Reentranc
         _sendViaLayerZero(dstChainId, payload, message.gasLimit);
 
         verificationLogger.logEvent(
-            "CROSS_CHAIN_MESSAGE_SENT", msg.sender, keccak256(abi.encodePacked(messageId, dstChainId, uint256(msgType)))
+            "CROSS_CHAIN_MESSAGE_SENT",
+            msg.sender,
+            keccak256(abi.encodePacked(messageId, dstChainId, uint256(msgType)))
         );
 
         emit CrossChainMessageSent(messageId, dstChainId, msgType, payloadHash);
         return messageId;
     }
 
-    function syncCertificateToChain(uint256 certificateId, uint16 dstChainId) external payable {
-        require(certificateManager.verifyCertificate(certificateId), "Certificate not valid");
+    function syncCertificateToChain(
+        uint256 certificateId,
+        uint16 dstChainId
+    ) external payable {
+        require(
+            certificateManager.verifyCertificate(certificateId),
+            "Certificate not valid"
+        );
 
-        bytes memory payload = abi.encode("SYNC_CERTIFICATE", certificateId, msg.sender, _getChainId(), block.timestamp);
+        bytes memory payload = abi.encode(
+            "SYNC_CERTIFICATE",
+            certificateId,
+            msg.sender,
+            _getChainId(),
+            block.timestamp
+        );
 
-        sendCrossChainMessage(dstChainId, MessageType.CertificateSync, msg.sender, payload);
+        sendCrossChainMessage(
+            dstChainId,
+            MessageType.CertificateSync,
+            msg.sender,
+            payload
+        );
     }
 
-    function syncUserDataToChain(address user, uint16 dstChainId, string memory dataType)
-        external
-        payable
-        onlyRole(RELAYER_ROLE)
-    {
+    function syncUserDataToChain(
+        address user,
+        uint16 dstChainId,
+        string memory dataType
+    ) external payable onlyRole(RELAYER_ROLE) {
         bytes memory payload;
 
         if (keccak256(bytes(dataType)) == keccak256("trust_score")) {
@@ -228,18 +271,34 @@ contract CrossChainManager is Initializable, AccessControlUpgradeable, Reentranc
                 block.timestamp
             );
         } else if (keccak256(bytes(dataType)) == keccak256("certificates")) {
-            uint256[] memory certs = certificateManager.getCertificatesByHolder(user);
-            payload = abi.encode("SYNC_USER_CERTIFICATES", user, certs, block.timestamp);
+            uint256[] memory certs = certificateManager.getCertificatesByHolder(
+                user
+            );
+            payload = abi.encode(
+                "SYNC_USER_CERTIFICATES",
+                user,
+                certs,
+                block.timestamp
+            );
         }
 
-        sendCrossChainMessage(dstChainId, MessageType.IdentitySync, user, payload);
+        sendCrossChainMessage(
+            dstChainId,
+            MessageType.IdentitySync,
+            user,
+            payload
+        );
     }
 
-    function receiveMessage(uint16 srcChainId, bytes memory srcAddress, uint64 nonce, bytes memory payload)
-        external
-        onlyRole(RELAYER_ROLE)
-    {
-        bytes32 messageHash = keccak256(abi.encodePacked(srcChainId, srcAddress, nonce, payload));
+    function receiveMessage(
+        uint16 srcChainId,
+        bytes memory srcAddress,
+        uint64 nonce,
+        bytes memory payload
+    ) external onlyRole(RELAYER_ROLE) {
+        bytes32 messageHash = keccak256(
+            abi.encodePacked(srcChainId, srcAddress, nonce, payload)
+        );
         require(!processedMessages[messageHash], "Message already processed");
 
         processedMessages[messageHash] = true;
@@ -250,10 +309,17 @@ contract CrossChainManager is Initializable, AccessControlUpgradeable, Reentranc
         uint256 messageId = messageCounter;
 
         verificationLogger.logEvent(
-            "CROSS_CHAIN_MESSAGE_RECEIVED", tx.origin, keccak256(abi.encodePacked(messageId, srcChainId, success))
+            "CROSS_CHAIN_MESSAGE_RECEIVED",
+            tx.origin,
+            keccak256(abi.encodePacked(messageId, srcChainId, success))
         );
 
-        emit CrossChainMessageReceived(messageId, srcChainId, MessageType.CertificateSync, success);
+        emit CrossChainMessageReceived(
+            messageId,
+            srcChainId,
+            MessageType.CertificateSync,
+            success
+        );
     }
 
     function configureSupportedChain(
@@ -290,12 +356,19 @@ contract CrossChainManager is Initializable, AccessControlUpgradeable, Reentranc
             activeChainIds.push(chainId);
         }
 
-        verificationLogger.logEvent("CHAIN_CONFIGURED", msg.sender, keccak256(abi.encodePacked(chainId, chainName)));
+        verificationLogger.logEvent(
+            "CHAIN_CONFIGURED",
+            msg.sender,
+            keccak256(abi.encodePacked(chainId, chainName))
+        );
 
         emit ChainConfigured(chainId, chainName, BridgeStatus.Active);
     }
 
-    function updateBridgeStatus(uint16 chainId, BridgeStatus newStatus) external onlyRole(BRIDGE_ADMIN_ROLE) {
+    function updateBridgeStatus(
+        uint16 chainId,
+        BridgeStatus newStatus
+    ) external onlyRole(BRIDGE_ADMIN_ROLE) {
         require(supportedChains[chainId].isActive, "Chain not configured");
 
         BridgeStatus oldStatus = supportedChains[chainId].status;
@@ -304,32 +377,50 @@ contract CrossChainManager is Initializable, AccessControlUpgradeable, Reentranc
         verificationLogger.logEvent(
             "BRIDGE_STATUS_UPDATED",
             msg.sender,
-            keccak256(abi.encodePacked(chainId, uint256(oldStatus), uint256(newStatus)))
+            keccak256(
+                abi.encodePacked(
+                    chainId,
+                    uint256(oldStatus),
+                    uint256(newStatus)
+                )
+            )
         );
 
         emit BridgeStatusUpdated(chainId, oldStatus, newStatus);
     }
 
-    function pauseAllBridges(string memory reason) external onlyRole(BRIDGE_ADMIN_ROLE) {
+    function pauseAllBridges(
+        string memory reason
+    ) external onlyRole(BRIDGE_ADMIN_ROLE) {
         emergencyPauseEnabled = true;
 
         for (uint256 i = 0; i < activeChainIds.length; i++) {
             supportedChains[activeChainIds[i]].status = BridgeStatus.Paused;
         }
 
-        verificationLogger.logEvent("ALL_BRIDGES_PAUSED", msg.sender, keccak256(bytes(reason)));
+        verificationLogger.logEvent(
+            "ALL_BRIDGES_PAUSED",
+            msg.sender,
+            keccak256(bytes(reason))
+        );
     }
 
     function unpauseAllBridges() external onlyRole(BRIDGE_ADMIN_ROLE) {
         emergencyPauseEnabled = false;
 
         for (uint256 i = 0; i < activeChainIds.length; i++) {
-            if (supportedChains[activeChainIds[i]].status == BridgeStatus.Paused) {
+            if (
+                supportedChains[activeChainIds[i]].status == BridgeStatus.Paused
+            ) {
                 supportedChains[activeChainIds[i]].status = BridgeStatus.Active;
             }
         }
 
-        verificationLogger.logEvent("ALL_BRIDGES_UNPAUSED", msg.sender, bytes32(0));
+        verificationLogger.logEvent(
+            "ALL_BRIDGES_UNPAUSED",
+            msg.sender,
+            bytes32(0)
+        );
     }
 
     function retryMessage(uint256 messageId) external payable {
@@ -339,16 +430,29 @@ contract CrossChainManager is Initializable, AccessControlUpgradeable, Reentranc
         require(!message.isProcessed, "Message already processed");
         require(msg.value >= message.fee, "Insufficient retry fee");
 
-        _sendViaLayerZero(message.dstChainId, message.payload, message.gasLimit);
+        _sendViaLayerZero(
+            message.dstChainId,
+            message.payload,
+            message.gasLimit
+        );
 
-        verificationLogger.logEvent("MESSAGE_RETRIED", msg.sender, keccak256(abi.encodePacked(messageId)));
+        verificationLogger.logEvent(
+            "MESSAGE_RETRIED",
+            msg.sender,
+            keccak256(abi.encodePacked(messageId))
+        );
     }
 
-    function getUserCertificatesOnChain(address user, uint16 chainId) external view returns (uint256[] memory) {
+    function getUserCertificatesOnChain(
+        address user,
+        uint16 chainId
+    ) external view returns (uint256[] memory) {
         return userCertPointers[user][chainId];
     }
 
-    function getCertificatePointer(bytes32 certHash) external view returns (CertificatePointer memory) {
+    function getCertificatePointer(
+        bytes32 certHash
+    ) external view returns (CertificatePointer memory) {
         return certPointers[certHash];
     }
 
@@ -356,16 +460,23 @@ contract CrossChainManager is Initializable, AccessControlUpgradeable, Reentranc
         return activeChainIds;
     }
 
-    function getChainConfig(uint16 chainId) external view returns (ChainConfig memory) {
+    function getChainConfig(
+        uint16 chainId
+    ) external view returns (ChainConfig memory) {
         return supportedChains[chainId];
     }
 
     function isBridgeActive(uint16 chainId) external view returns (bool) {
-        return supportedChains[chainId].isActive && supportedChains[chainId].status == BridgeStatus.Active
-            && !emergencyPauseEnabled;
+        return
+            supportedChains[chainId].isActive &&
+            supportedChains[chainId].status == BridgeStatus.Active &&
+            !emergencyPauseEnabled;
     }
 
-    function estimateFee(uint16 dstChainId, bytes memory payload) external view returns (uint256) {
+    function estimateFee(
+        uint16 dstChainId,
+        bytes memory payload
+    ) external view returns (uint256) {
         ChainConfig memory config = supportedChains[dstChainId];
         uint256 gasNeeded = payload.length * 100 + config.baseFee;
         return gasNeeded + bridgeFee;
@@ -374,14 +485,21 @@ contract CrossChainManager is Initializable, AccessControlUpgradeable, Reentranc
     function getBridgeStats()
         external
         view
-        returns (uint256 totalMessages, uint256 activeChains, uint256 pausedBridges, uint256 totalVolume)
+        returns (
+            uint256 totalMessages,
+            uint256 activeChains,
+            uint256 pausedBridges,
+            uint256 totalVolume
+        )
     {
         totalMessages = messageCounter;
         activeChains = activeChainIds.length;
 
         uint256 paused = 0;
         for (uint256 i = 0; i < activeChainIds.length; i++) {
-            if (supportedChains[activeChainIds[i]].status == BridgeStatus.Paused) {
+            if (
+                supportedChains[activeChainIds[i]].status == BridgeStatus.Paused
+            ) {
                 paused++;
             }
         }
@@ -391,21 +509,35 @@ contract CrossChainManager is Initializable, AccessControlUpgradeable, Reentranc
         totalVolume = 0;
     }
 
-    function _processIncomingMessage(uint16 srcChainId, bytes memory payload) private returns (bool) {
+    function _processIncomingMessage(
+        uint16 srcChainId,
+        bytes memory payload
+    ) private returns (bool) {
         try this._decodeAndExecuteMessage(srcChainId, payload) {
             return true;
         } catch Error(string memory error) {
-            verificationLogger.logEvent("CROSS_CHAIN_ERROR", tx.origin, keccak256(bytes(error)));
+            verificationLogger.logEvent(
+                "CROSS_CHAIN_ERROR",
+                tx.origin,
+                keccak256(bytes(error))
+            );
             emit CrossChainError(messageCounter, error);
             return false;
         } catch {
-            verificationLogger.logEvent("CROSS_CHAIN_ERROR", tx.origin, keccak256("Unknown error"));
+            verificationLogger.logEvent(
+                "CROSS_CHAIN_ERROR",
+                tx.origin,
+                keccak256("Unknown error")
+            );
             emit CrossChainError(messageCounter, "Unknown error");
             return false;
         }
     }
 
-    function _decodeAndExecuteMessage(uint16 srcChainId, bytes memory payload) external {
+    function _decodeAndExecuteMessage(
+        uint16 srcChainId,
+        bytes memory payload
+    ) external {
         require(msg.sender == address(this), "Internal function only");
 
         string memory action;
@@ -416,18 +548,26 @@ contract CrossChainManager is Initializable, AccessControlUpgradeable, Reentranc
         }
 
         if (actionHash == keccak256("SYNC_CERTIFICATE")) {
-            (, uint256 certId, address holder, uint16 originChain, uint256 timestamp) =
-                abi.decode(payload, (string, uint256, address, uint16, uint256));
+            (
+                ,
+                uint256 certId,
+                address holder,
+                uint16 originChain,
+                uint256 timestamp
+            ) = abi.decode(
+                    payload,
+                    (string, uint256, address, uint16, uint256)
+                );
 
             _processCertificateSync(certId, holder, originChain, timestamp);
         } else if (actionHash == keccak256("SYNC_TRUST_SCORE")) {
-            (, address user, uint256 trustScore, uint256 timestamp) =
-                abi.decode(payload, (string, address, uint256, uint256));
+            (, address user, uint256 trustScore, uint256 timestamp) = abi
+                .decode(payload, (string, address, uint256, uint256));
 
             _processTrustScoreSync(user, trustScore, srcChainId, timestamp);
         } else if (actionHash == keccak256("SYNC_USER_CERTIFICATES")) {
-            (, address user, uint256[] memory certs, uint256 timestamp) =
-                abi.decode(payload, (string, address, uint256[], uint256));
+            (, address user, uint256[] memory certs, uint256 timestamp) = abi
+                .decode(payload, (string, address, uint256[], uint256));
 
             for (uint256 i = 0; i < certs.length; i++) {
                 _processCertificateSync(certs[i], user, srcChainId, timestamp);
@@ -435,8 +575,15 @@ contract CrossChainManager is Initializable, AccessControlUpgradeable, Reentranc
         }
     }
 
-    function _processCertificateSync(uint256 certId, address holder, uint16 originChain, uint256 timestamp) private {
-        bytes32 certHash = keccak256(abi.encodePacked(certId, holder, originChain));
+    function _processCertificateSync(
+        uint256 certId,
+        address holder,
+        uint16 originChain,
+        uint256 timestamp
+    ) private {
+        bytes32 certHash = keccak256(
+            abi.encodePacked(certId, holder, originChain)
+        );
 
         if (certPointers[certHash].syncedAt == 0) {
             certPointers[certHash] = CertificatePointer({
@@ -454,30 +601,49 @@ contract CrossChainManager is Initializable, AccessControlUpgradeable, Reentranc
         }
     }
 
-    function _processTrustScoreSync(address user, uint256 trustScore, uint16 fromChainId, uint256 timestamp) private {
+    function _processTrustScoreSync(
+        address user,
+        uint256 trustScore,
+        uint16 fromChainId,
+        uint256 timestamp
+    ) private {
         // In a full implementation, this would update a cross-chain trust score registry
         verificationLogger.logEvent(
-            "TRUST_SCORE_SYNCED", user, keccak256(abi.encodePacked(trustScore, fromChainId, timestamp))
+            "TRUST_SCORE_SYNCED",
+            user,
+            keccak256(abi.encodePacked(trustScore, fromChainId, timestamp))
         );
 
         emit TrustScoreSynced(user, trustScore, fromChainId);
     }
 
-    function _sendViaLayerZero(uint16 dstChainId, bytes memory payload, uint256 gasLimit) private {
+    function _sendViaLayerZero(
+        uint16 dstChainId,
+        bytes memory payload,
+        uint256 gasLimit
+    ) private {
         ChainConfig memory config = supportedChains[dstChainId];
         require(config.isActive, "Chain not active");
         require(config.status == BridgeStatus.Active, "Bridge not active");
         require(payload.length > 0, "Empty payload");
         require(gasLimit <= config.maxGasLimit, "Gas limit too high");
 
-        bytes memory trustedRemote = abi.encodePacked(config.trustedRemote, address(this));
+        bytes memory trustedRemote = abi.encodePacked(
+            config.trustedRemote,
+            address(this)
+        );
         bytes memory adapterParams = abi.encodePacked(uint16(1), gasLimit);
 
         // Validate LayerZero endpoint
         require(config.endpoint != address(0), "Invalid endpoint");
 
         layerZeroEndpoint.send{value: msg.value}(
-            dstChainId, trustedRemote, payload, payable(msg.sender), address(0x0), adapterParams
+            dstChainId,
+            trustedRemote,
+            payload,
+            payable(msg.sender),
+            address(0x0),
+            adapterParams
         );
     }
 
@@ -541,12 +707,14 @@ contract CrossChainManager is Initializable, AccessControlUpgradeable, Reentranc
         bridgeFee = newFee;
     }
 
-    function withdrawFees(address payable recipient) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function withdrawFees(
+        address payable recipient
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(recipient != address(0), "Invalid recipient");
         uint256 balance = address(this).balance;
         require(balance > 0, "No fees to withdraw");
 
-        (bool success,) = recipient.call{value: balance}("");
+        (bool success, ) = recipient.call{value: balance}("");
         require(success, "Withdrawal failed");
     }
 

@@ -1,24 +1,32 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 interface IVerificationLogger {
-    function logEvent(string memory eventType, address user, bytes32 dataHash) external;
+    function logEvent(
+        string memory eventType,
+        address user,
+        bytes32 dataHash
+    ) external;
 }
 
 interface IContractRegistry {
-    function getContractAddress(string memory name) external view returns (address);
+    function getContractAddress(
+        string memory name
+    ) external view returns (address);
 
-    function registerContract(string memory name, address contractAddress, string memory version) external;
+    function registerContract(
+        string memory name,
+        address contractAddress,
+        string memory version
+    ) external;
 }
 
-contract MigrationManager is Initializable, AccessControlUpgradeable, ReentrancyGuardUpgradeable, UUPSUpgradeable {
-    bytes32 public constant MIGRATION_ADMIN_ROLE = keccak256("MIGRATION_ADMIN_ROLE");
-    bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
+contract MigrationManager is AccessControl, ReentrancyGuard {
+    bytes32 public constant MIGRATION_ADMIN_ROLE =
+        keccak256("MIGRATION_ADMIN_ROLE");
 
     enum MigrationStatus {
         Planned,
@@ -113,35 +121,47 @@ contract MigrationManager is Initializable, AccessControlUpgradeable, Reentrancy
     bool public emergencyPauseEnabled;
     uint256 public rollbackWindow;
 
-    event MigrationPlanned(uint256 indexed migrationId, string name, address executor);
+    event MigrationPlanned(
+        uint256 indexed migrationId,
+        string name,
+        address executor
+    );
     event MigrationStarted(uint256 indexed migrationId, uint256 totalRecords);
-    event BatchMigrated(uint256 indexed migrationId, uint256 batchNumber, uint256 recordCount);
-    event MigrationCompleted(uint256 indexed migrationId, uint256 migratedRecords);
+    event BatchMigrated(
+        uint256 indexed migrationId,
+        uint256 batchNumber,
+        uint256 recordCount
+    );
+    event MigrationCompleted(
+        uint256 indexed migrationId,
+        uint256 migratedRecords
+    );
     event MigrationPaused(uint256 indexed migrationId, address pausedBy);
     event MigrationResumed(uint256 indexed migrationId, address resumedBy);
-    event DataBackedUp(string indexed contractName, string dataType, bytes32 backupHash);
+    event DataBackedUp(
+        string indexed contractName,
+        string dataType,
+        bytes32 backupHash
+    );
     event DataRestored(string indexed contractName, bytes32 backupHash);
-    event StateSnapshotEvent(uint256 indexed snapshotId, string contractName, bytes32 stateHash);
+    event StateSnapshotEvent(
+        uint256 indexed snapshotId,
+        string contractName,
+        bytes32 stateHash
+    );
     event RollbackExecuted(uint256 indexed migrationId, string reason);
     event EmergencyPause(address indexed admin, string reason);
     event EmergencyResume(address indexed admin);
 
-    /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
-        _disableInitializers();
-    }
-
-    function initialize(address _verificationLogger, address _contractRegistry) public initializer {
-        require(_verificationLogger != address(0), "Invalid verification logger");
+    constructor(address _verificationLogger, address _contractRegistry) {
+        require(
+            _verificationLogger != address(0),
+            "Invalid verification logger"
+        );
         require(_contractRegistry != address(0), "Invalid contract registry");
-
-        __AccessControl_init();
-        __ReentrancyGuard_init();
-        __UUPSUpgradeable_init();
 
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(MIGRATION_ADMIN_ROLE, msg.sender);
-        _grantRole(UPGRADER_ROLE, msg.sender);
 
         verificationLogger = IVerificationLogger(_verificationLogger);
         contractRegistry = IContractRegistry(_contractRegistry);
@@ -152,10 +172,10 @@ contract MigrationManager is Initializable, AccessControlUpgradeable, Reentrancy
         rollbackWindow = 7 days;
     }
 
-    function _authorizeUpgrade(address) internal override onlyRole(UPGRADER_ROLE) {}
-
     // --- Explicit Fieldwise Getters for Migration struct ---
-    function getMigrationInfo(uint256 id)
+    function getMigrationInfo(
+        uint256 id
+    )
         external
         view
         returns (
@@ -192,17 +212,24 @@ contract MigrationManager is Initializable, AccessControlUpgradeable, Reentrancy
         migrationHash = m.migrationHash;
     }
 
-    function getMigrationArrays(uint256 id)
+    function getMigrationArrays(
+        uint256 id
+    )
         external
         view
-        returns (DataType[] memory dataTypes, address[] memory contractsToMigrate)
+        returns (
+            DataType[] memory dataTypes,
+            address[] memory contractsToMigrate
+        )
     {
         Migration storage m = migrations[id];
         dataTypes = m.dataTypes;
         contractsToMigrate = m.contractsToMigrate;
     }
 
-    function getMigrationErrors(uint256 id)
+    function getMigrationErrors(
+        uint256 id
+    )
         external
         view
         returns (string memory errorMessage, bytes memory rollbackData)
@@ -260,19 +287,31 @@ contract MigrationManager is Initializable, AccessControlUpgradeable, Reentrancy
         m.hasRollbackPlan = rollbackData.length > 0;
         m.rollbackData = rollbackData;
         m.errorMessage = "";
-        m.migrationHash = keccak256(abi.encodePacked(name, contractsToMigrate, block.timestamp));
+        m.migrationHash = keccak256(
+            abi.encodePacked(name, contractsToMigrate, block.timestamp)
+        );
 
         activeMigrations.push(id);
 
-        verificationLogger.logEvent("MIGRATION_PLANNED", msg.sender, m.migrationHash);
+        verificationLogger.logEvent(
+            "MIGRATION_PLANNED",
+            msg.sender,
+            m.migrationHash
+        );
         emit MigrationPlanned(id, name, msg.sender);
         return id;
     }
 
-    function startMigration(uint256 id) external onlyRole(MIGRATION_ADMIN_ROLE) nonReentrant {
+    function startMigration(
+        uint256 id
+    ) external onlyRole(MIGRATION_ADMIN_ROLE) nonReentrant {
         require(!emergencyPauseEnabled, "Emergency pause enabled");
         Migration storage m = migrations[id];
-        require(m.status == MigrationStatus.Planned || m.status == MigrationStatus.Paused, "InvalidMigrationStatus");
+        require(
+            m.status == MigrationStatus.Planned ||
+                m.status == MigrationStatus.Paused,
+            "InvalidMigrationStatus"
+        );
         require(m.migrationExecutor == msg.sender, "NotAuthorized");
 
         for (uint256 i; i < m.contractsToMigrate.length; i++) {
@@ -282,20 +321,29 @@ contract MigrationManager is Initializable, AccessControlUpgradeable, Reentrancy
         m.status = MigrationStatus.InProgress;
         m.startedAt = block.timestamp;
 
-        verificationLogger.logEvent("MIGRATION_STARTED", msg.sender, m.migrationHash);
+        verificationLogger.logEvent(
+            "MIGRATION_STARTED",
+            msg.sender,
+            m.migrationHash
+        );
         emit MigrationStarted(id, m.totalRecords);
     }
 
-    function executeBatchMigration(uint256 id, uint256 batchNumber, bytes memory batchData, uint256 recordCount)
-        external
-        onlyRole(MIGRATION_ADMIN_ROLE)
-    {
+    function executeBatchMigration(
+        uint256 id,
+        uint256 batchNumber,
+        bytes memory batchData,
+        uint256 recordCount
+    ) external onlyRole(MIGRATION_ADMIN_ROLE) {
         require(batchData.length > 0, "Empty batch data");
         require(recordCount > 0, "Invalid record count");
         require(recordCount <= maxBatchSize, "Batch too large");
 
         Migration storage m = migrations[id];
-        require(m.status == MigrationStatus.InProgress, "Migration not in progress");
+        require(
+            m.status == MigrationStatus.InProgress,
+            "Migration not in progress"
+        );
 
         bytes32 hash = keccak256(batchData);
         bool success;
@@ -326,18 +374,28 @@ contract MigrationManager is Initializable, AccessControlUpgradeable, Reentrancy
             })
         );
 
-        verificationLogger.logEvent(success ? "BATCH_MIGRATION_SUCCESS" : "BATCH_MIGRATION_FAILED", msg.sender, hash);
+        verificationLogger.logEvent(
+            success ? "BATCH_MIGRATION_SUCCESS" : "BATCH_MIGRATION_FAILED",
+            msg.sender,
+            hash
+        );
         emit BatchMigrated(id, batchNumber, recordCount);
     }
 
-    function completeMigration(uint256 id) external onlyRole(MIGRATION_ADMIN_ROLE) {
+    function completeMigration(
+        uint256 id
+    ) external onlyRole(MIGRATION_ADMIN_ROLE) {
         Migration storage m = migrations[id];
         require(m.status == MigrationStatus.InProgress, "NotInProgress");
         require(m.migrationExecutor == msg.sender, "NotAuthorized");
 
         m.status = MigrationStatus.Completed;
         m.completedAt = block.timestamp;
-        verificationLogger.logEvent("MIGRATION_COMPLETED", msg.sender, m.migrationHash);
+        verificationLogger.logEvent(
+            "MIGRATION_COMPLETED",
+            msg.sender,
+            m.migrationHash
+        );
         emit MigrationCompleted(id, m.migratedRecords);
 
         _removeActiveMigration(id);
@@ -348,41 +406,74 @@ contract MigrationManager is Initializable, AccessControlUpgradeable, Reentrancy
         }
     }
 
-    function pauseMigration(uint256 id, string memory reason) external onlyRole(MIGRATION_ADMIN_ROLE) {
+    function pauseMigration(
+        uint256 id,
+        string memory reason
+    ) external onlyRole(MIGRATION_ADMIN_ROLE) {
         Migration storage m = migrations[id];
         require(m.status == MigrationStatus.InProgress, "NotInProgress");
         m.status = MigrationStatus.Paused;
-        verificationLogger.logEvent("MIGRATION_PAUSED", msg.sender, keccak256(bytes(reason)));
+        verificationLogger.logEvent(
+            "MIGRATION_PAUSED",
+            msg.sender,
+            keccak256(bytes(reason))
+        );
         emit MigrationPaused(id, msg.sender);
     }
 
-    function resumeMigration(uint256 id) external onlyRole(MIGRATION_ADMIN_ROLE) {
+    function resumeMigration(
+        uint256 id
+    ) external onlyRole(MIGRATION_ADMIN_ROLE) {
         Migration storage m = migrations[id];
         require(m.status == MigrationStatus.Paused, "NotPaused");
         require(!emergencyPauseEnabled, "SystemPaused");
         m.status = MigrationStatus.InProgress;
-        verificationLogger.logEvent("MIGRATION_RESUMED", msg.sender, m.migrationHash);
+        verificationLogger.logEvent(
+            "MIGRATION_RESUMED",
+            msg.sender,
+            m.migrationHash
+        );
         emit MigrationResumed(id, msg.sender);
     }
 
-    function rollbackMigration(uint256 id, string memory reason) external onlyRole(MIGRATION_ADMIN_ROLE) nonReentrant {
+    function rollbackMigration(
+        uint256 id,
+        string memory reason
+    ) external onlyRole(MIGRATION_ADMIN_ROLE) nonReentrant {
         Migration storage m = migrations[id];
-        require(m.status == MigrationStatus.Completed || m.status == MigrationStatus.Failed, "NotRollbackable");
+        require(
+            m.status == MigrationStatus.Completed ||
+                m.status == MigrationStatus.Failed,
+            "NotRollbackable"
+        );
         require(m.hasRollbackPlan, "NoRollbackPlan");
-        require(block.timestamp <= m.completedAt + rollbackWindow, "WindowExpired");
+        require(
+            block.timestamp <= m.completedAt + rollbackWindow,
+            "WindowExpired"
+        );
 
         m.status = MigrationStatus.Rollback;
         _executeRollback(id, m.rollbackData);
         for (uint256 i; i < m.contractsToMigrate.length; i++) {
             _restoreStateSnapshot(m.contractsToMigrate[i]);
         }
-        verificationLogger.logEvent("ROLLBACK_EXECUTED", msg.sender, m.migrationHash);
+        verificationLogger.logEvent(
+            "ROLLBACK_EXECUTED",
+            msg.sender,
+            m.migrationHash
+        );
         emit RollbackExecuted(id, reason);
     }
 
-    function emergencyPause(string memory reason) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function emergencyPause(
+        string memory reason
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         emergencyPauseEnabled = true;
-        verificationLogger.logEvent("EMERGENCY_PAUSE", msg.sender, keccak256(bytes(reason)));
+        verificationLogger.logEvent(
+            "EMERGENCY_PAUSE",
+            msg.sender,
+            keccak256(bytes(reason))
+        );
         emit EmergencyPause(msg.sender, reason);
     }
 
@@ -421,20 +512,31 @@ contract MigrationManager is Initializable, AccessControlUpgradeable, Reentrancy
         string memory name = _getContractName(c);
         for (uint256 i = snapshotCounter; i > 0; i--) {
             StateSnapshot storage s = stateSnapshots[i];
-            if (keccak256(bytes(s.contractName)) == keccak256(bytes(name)) && s.isActive) {
+            if (
+                keccak256(bytes(s.contractName)) == keccak256(bytes(name)) &&
+                s.isActive
+            ) {
                 s.isActive = false;
                 break;
             }
         }
     }
 
-    function backupData(string memory cn, string memory dt, bytes memory d)
-        external
-        onlyRole(MIGRATION_ADMIN_ROLE)
-        returns (bytes32)
-    {
+    function backupData(
+        string memory cn,
+        string memory dt,
+        bytes memory d
+    ) external onlyRole(MIGRATION_ADMIN_ROLE) returns (bytes32) {
         bytes32 h = keccak256(abi.encodePacked(cn, dt, d, block.timestamp));
-        dataBackups[h] = DataBackup(cn, dt, d, h, block.timestamp, contractVersions[cn], false);
+        dataBackups[h] = DataBackup(
+            cn,
+            dt,
+            d,
+            h,
+            block.timestamp,
+            contractVersions[cn],
+            false
+        );
         verificationLogger.logEvent("DATA_BACKED_UP", msg.sender, h);
         emit DataBackedUp(cn, dt, h);
         return h;
@@ -449,29 +551,40 @@ contract MigrationManager is Initializable, AccessControlUpgradeable, Reentrancy
         emit DataRestored(b.contractName, h);
     }
 
-    function setMaxBatchSize(uint256 s) external onlyRole(MIGRATION_ADMIN_ROLE) {
+    function setMaxBatchSize(
+        uint256 s
+    ) external onlyRole(MIGRATION_ADMIN_ROLE) {
         require(s > 0 && s <= 10000, "InvalidSize");
         maxBatchSize = s;
     }
 
-    function setMigrationTimeout(uint256 t) external onlyRole(MIGRATION_ADMIN_ROLE) {
+    function setMigrationTimeout(
+        uint256 t
+    ) external onlyRole(MIGRATION_ADMIN_ROLE) {
         require(t >= 1 hours && t <= 168 hours, "InvalidTimeout");
         migrationTimeout = t;
     }
 
-    function setRollbackWindow(uint256 w) external onlyRole(MIGRATION_ADMIN_ROLE) {
+    function setRollbackWindow(
+        uint256 w
+    ) external onlyRole(MIGRATION_ADMIN_ROLE) {
         require(w >= 1 days && w <= 30 days, "InvalidWindow");
         rollbackWindow = w;
     }
 
-    function authorizeContract(address c, bool a) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function authorizeContract(
+        address c,
+        bool a
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         authorizedMigrationContracts[c] = a;
     }
 
     function _removeActiveMigration(uint256 id) private {
         for (uint256 i; i < activeMigrations.length; i++) {
             if (activeMigrations[i] == id) {
-                activeMigrations[i] = activeMigrations[activeMigrations.length - 1];
+                activeMigrations[i] = activeMigrations[
+                    activeMigrations.length - 1
+                ];
                 activeMigrations.pop();
                 break;
             }

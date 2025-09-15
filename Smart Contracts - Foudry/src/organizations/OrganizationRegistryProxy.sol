@@ -5,10 +5,11 @@ import "./OrganizationLogic.sol";
 import "./OrganizationView.sol";
 
 contract OrganizationRegistryProxy is OrganizationLogic, OrganizationView {
-    function initializeAll(address certificateManager_, address verificationLogger_, address trustScore_)
-        external
-        initializer
-    {
-        OrganizationLogic.initializeLogic(certificateManager_, trustScore_, verificationLogger_);
-    }
+    constructor(
+        address certificateManager_,
+        address trustScore_,
+        address verificationLogger_
+    )
+        OrganizationLogic(certificateManager_, trustScore_, verificationLogger_)
+    {}
 }
